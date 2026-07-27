@@ -158,7 +158,11 @@ plot = plot_demand(res)
 - `title::String`: Set a title for the plots
 - `horizon::Int64`: To plot a shorter window of time than the full results
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
-- `aggregate::String = "System", "PowerLoad", or "Bus"`: aggregate the demand other than by generator
+- `aggregation::Type = PowerSystems.StaticLoad`: aggregate the demand by
+    [`PowerSystems.System`](@extref), [`PowerSystems.ACBus`](@extref), a `PowerSystems.StaticLoad`
+    subtype such as [`PowerSystems.PowerLoad`](@extref), or a `PowerSystems.AggregationTopology`
+    subtype. Only applies when plotting a [`PowerSystems.System`](@extref).
+- `aggregate::String`: convenience alias for `aggregation`: `"System"`, `"Bus"`, or `"PowerLoad"`
 - `set_display::Bool = true`: set to false to prevent the plots from displaying
 - `save::String = "file_path"`: set a file path to save the plots
 - `format::String = "png"`: file extension for saved plots. CairoMakie supports `"png"`, `"pdf"`, `"svg"`. PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
@@ -271,9 +275,11 @@ instead of CairoMakie.
 - `title::String`: Set a title for the plots
 - `horizon::Int64`: To plot a shorter window of time than the full results
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
-- `aggregate::String = "System", "PowerLoad", or "Bus"`: aggregate the demand by
-    [`PowerSystems.System`](@extref), [`PowerSystems.PowerLoad`](@extref), or [`PowerSystems.Bus`](@extref),
-    rather than by generator
+- `aggregation::Type = PowerSystems.StaticLoad`: aggregate the demand by
+    [`PowerSystems.System`](@extref), [`PowerSystems.ACBus`](@extref), a `PowerSystems.StaticLoad`
+    subtype such as [`PowerSystems.PowerLoad`](@extref), or a `PowerSystems.AggregationTopology`
+    subtype. Only applies when plotting a [`PowerSystems.System`](@extref).
+- `aggregate::String`: convenience alias for `aggregation`: `"System"`, `"Bus"`, or `"PowerLoad"`
 - `set_display::Bool = true`: set to false to prevent the plots from displaying
 - `save::String = "file_path"`: set a file path to save the plots
 - `format::String = "png"`: file extension for saved plots. CairoMakie supports `"png"`, `"pdf"`, `"svg"`. PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
