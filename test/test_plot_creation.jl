@@ -267,6 +267,17 @@ function test_plots(file_path::String; backend_pkg::String = "cairomakie")
         plot_length = backend_pkg == "cairomakie" ? p.series_count : length(p.data)
         @test plot_length == 3
 
+        # Issue #126: the typed `aggregation` keyword must survive to `get_load_data`.
+        # Not saved, so the expected file list below is unchanged.
+        p = plot_demand_fn(
+            sys_with_ts;
+            set_display = set_display,
+            title = "sysdemand_aggregation",
+            aggregation = ACBus,
+        )
+        plot_length = backend_pkg == "cairomakie" ? p.series_count : length(p.data)
+        @test plot_length == 3
+
         list = readdir(out_path)
         # PlotlyLight only supports HTML export, CairoMakie supports PNG
         file_ext = backend_pkg == "plotlylight" ? ".html" : ".png"
