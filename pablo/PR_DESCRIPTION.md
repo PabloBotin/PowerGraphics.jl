@@ -51,6 +51,15 @@ signature, so PowerGraphics is ready before the old interface is removed.
   `no_datetime` on user-supplied DataFrames (copy semantics), and the deprecated
   `plot_powerdata(::PowerData)` shims. PowerAnalytics still exports and maintains the old
   API, so these keep working unchanged until a future breaking release.
-- Upstream TODOs are marked in code comments: PowerAnalytics should export
-  `calc_system_slack_down`, provide forecast metrics for the storage/source time-series
-  parameters, and fix `compute`'s time-window kwargs.
+- Upstream TODOs are marked in code comments and filed as PowerAnalytics issues (on my
+  fork for now): broken `compute` time-window kwargs
+  ([PA#1](https://github.com/PabloBotin/PowerAnalytics.jl/issues/1)), stale
+  `get_subselectors` export
+  ([PA#2](https://github.com/PabloBotin/PowerAnalytics.jl/issues/2)), inconsistent
+  missing-result error types
+  ([PA#3](https://github.com/PabloBotin/PowerAnalytics.jl/issues/3)), missing
+  `calc_system_slack_down`/forecast metrics
+  ([PA#4](https://github.com/PabloBotin/PowerAnalytics.jl/issues/4)), and
+  `parse_generator_categories` returning `nothing`
+  ([PA#5](https://github.com/PabloBotin/PowerAnalytics.jl/issues/5)). Each issue records
+  the PowerGraphics follow-up (all optional simplifications) once fixed.
