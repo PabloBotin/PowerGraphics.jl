@@ -159,6 +159,15 @@ function PowerGraphics._dataframe_plots_internal(
     plot.layout.title.text = title
     plot.layout.barmode = stack ? "relative" : "group"
 
+    # Sized only on request, unlike CairoMakie: Plotly output is responsive to
+    # its container, and defaulting to a fixed size would change how every
+    # existing HTML plot renders.
+    fig_size = get(kwargs, :size, nothing)
+    if !isnothing(fig_size)
+        plot.layout.width = fig_size[1]
+        plot.layout.height = fig_size[2]
+    end
+
     legend_position = get(kwargs, :legend_position, :right)
     legend_font_size = get(kwargs, :legend_font_size, nothing)
 
