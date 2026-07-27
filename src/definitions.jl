@@ -1,4 +1,7 @@
 
+# 16:9 by default — Makie's (600, 450) 4:3 default deforms time-series stack plots.
+const DEFAULT_FIGURE_SIZE = (1280, 720)
+
 # Color Definitions
 const DEFAULT_PALETTE_FILE = joinpath(
     dirname(dirname(pathof(PowerGraphics))),

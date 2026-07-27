@@ -9,9 +9,7 @@ mutable struct CairoMakiePlot
 end
 
 function PowerGraphics._empty_plot(backend::PowerGraphics.CairoMakieBackend)
-    # 16:9 by default — the Makie 800x600 (4:3) default deforms time-series
-    # stack plots too much.
-    fig = CairoMakie.Figure(; size = (1280, 720))
+    fig = CairoMakie.Figure(; size = PowerGraphics.DEFAULT_FIGURE_SIZE)
     ax = CairoMakie.Axis(fig[1, 1])
     return CairoMakiePlot(fig, ax, 0, false)
 end
@@ -32,6 +30,8 @@ function PowerGraphics._dataframe_plots_internal(
     label_fn = get(kwargs, :label_fn, PowerGraphics.label_short)
     linestyle = get(kwargs, :linestyle, :solid)
     linewidth = get(kwargs, :linewidth, 1)
+    # Not named `size`: that would shadow `Base.size`.
+    fig_size = get(kwargs, :size, nothing)
 
     time_interval = PowerGraphics.IS.convert_compound_period(
         length(time_range) * (time_range[2] - time_range[1]),
@@ -39,9 +39,8 @@ function PowerGraphics._dataframe_plots_internal(
     interval =
         Dates.Millisecond(Dates.Hour(1)) / Dates.Millisecond(time_range[2] - time_range[1])
 
-    if isnothing(plot)
-        plot = PowerGraphics._empty_plot(backend)
-    end
+    isnothing(plot) && (plot = PowerGraphics._empty_plot(backend))
+    isnothing(fig_size) || CairoMakie.resize!(plot.figure, fig_size...)
 
     ndf = PowerGraphics.PA.no_datetime(variable)
     column_names = DataFrames.names(ndf)

@@ -171,6 +171,7 @@ plot = plot_demand(res)
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 """  # ^ temporary workaround for https://github.com/Sienna-Platform/PowerSystems.jl/issues/1598
 function plot_demand(result::Union{IS.Results, PSY.System}; kwargs...)
@@ -286,6 +287,7 @@ instead of CairoMakie.
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 - `palette` : color palette from [`load_palette`](@ref)
 """
@@ -339,6 +341,7 @@ plot = plot_dataframe(df, time_range)
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 """
 function plot_dataframe(df::DataFrames.DataFrame; kwargs...)
     return plot_dataframe!(_empty_plot(), PA.no_datetime(df), df.DateTime; kwargs...)
@@ -413,6 +416,7 @@ If only the `DataFrame` is provided, it must have a column of `DateTime` values.
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 """
 function plot_dataframe!(p, df::DataFrames.DataFrame; kwargs...)
     return _plot_dataframe!(
@@ -483,6 +487,7 @@ Makes a plot from a `PowerAnalytics.PowerData` object, such as the result of
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 """
 function plot_powerdata(powerdata::PA.PowerData; kwargs...)
     return plot_powerdata!(_empty_plot(), powerdata; kwargs...)
@@ -549,6 +554,7 @@ variant renders with the PlotlyLight backend instead of CairoMakie.
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 """
 function plot_powerdata!(p, powerdata::PA.PowerData; kwargs...)
     return _plot_powerdata!(p, powerdata, CairoMakieBackend(); kwargs...)
@@ -586,6 +592,7 @@ Makes a plot from a results dictionary object
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 """
 function plot_results(results::Dict{String, DataFrames.DataFrame}; kwargs...)
     return plot_powerdata!(_empty_plot(), PA.PowerData(results); kwargs...)
@@ -623,6 +630,7 @@ Makes a plot from a results dictionary
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 """
 function plot_results!(p, results::Dict{String, DataFrames.DataFrame}; kwargs...)
     return plot_powerdata!(p, PA.PowerData(results); kwargs...)
@@ -674,6 +682,7 @@ plot = plot_fuel(res)
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 """
 function plot_fuel(result::IS.Results; kwargs...)
@@ -825,6 +834,7 @@ PlotlyLight backend instead of CairoMakie.
 - `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_powerdata`, `plot_results`, and `plot_fuel`), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
 - `legend_font_size::Number`: override the legend label font size
+- `size::Tuple{Int, Int} = (1280, 720)`: figure size in pixels; PlotlyLight plots stay responsive to their container unless `size` is passed
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 - `palette` : Color palette as from [`load_palette`](@ref).
 """

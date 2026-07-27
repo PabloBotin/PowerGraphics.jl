@@ -111,6 +111,39 @@ function test_plots(file_path::String; backend_pkg::String = "cairomakie")
         cleanup && rm(out_path; recursive = true)
     end
 
+    @testset "test $backend_pkg figure size" begin
+        df = gen_uc.data[:ActivePowerVariable__ThermalStandard]
+
+        p = plot_dataframe_fn(df, gen_uc.time; set_display = set_display)
+        if backend_pkg == "cairomakie"
+            @test size(p.figure.scene) == PG.DEFAULT_FIGURE_SIZE
+        else
+            # `haskey`, not property access: EasyConfig `getproperty` inserts
+            # the key it is asked for, which would then be serialized.
+            @test !haskey(p.layout, :width)
+            @test !haskey(p.layout, :height)
+        end
+
+        p = plot_dataframe_fn(
+            df,
+            gen_uc.time;
+            set_display = set_display,
+            size = (800, 400),
+        )
+        if backend_pkg == "cairomakie"
+            @test size(p.figure.scene) == (800, 400)
+        else
+            @test (p.layout.width, p.layout.height) == (800, 400)
+        end
+
+        plot_dataframe_fn!(p, df, gen_uc.time; set_display = set_display, size = (640, 480))
+        if backend_pkg == "cairomakie"
+            @test size(p.figure.scene) == (640, 480)
+        else
+            @test (p.layout.width, p.layout.height) == (640, 480)
+        end
+    end
+
     @testset "test $backend_pkg powerdata plot production" begin
         out_path = joinpath(file_path, backend_pkg * "_powerdata_plots")
         !isdir(out_path) && mkdir(out_path)
@@ -266,6 +299,19 @@ function test_plots(file_path::String; backend_pkg::String = "cairomakie")
         )
         plot_length = backend_pkg == "cairomakie" ? p.series_count : length(p.data)
         @test plot_length == 3
+
+        # `size` has to survive the kwarg splat into the PowerAnalytics getters.
+        p = plot_demand_fn(
+            sys_with_ts;
+            set_display = set_display,
+            aggregate = "System",
+            size = (900, 500),
+        )
+        if backend_pkg == "cairomakie"
+            @test size(p.figure.scene) == (900, 500)
+        else
+            @test (p.layout.width, p.layout.height) == (900, 500)
+        end
 
         list = readdir(out_path)
         # PlotlyLight only supports HTML export, CairoMakie supports PNG
