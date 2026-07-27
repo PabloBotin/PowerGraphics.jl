@@ -184,8 +184,37 @@ function PowerGraphics._dataframe_plots_internal(
     return plot
 end
 
-const SUPPORTED_PLOTLY_SAVE_KWARGS =
-    [:autoplay, :post_script, :full_html, :animation_opts, :default_width, :default_height]
+_save_dimension(::Symbol, ::Nothing) = nothing
+function _save_dimension(name::Symbol, value::Integer)
+    value > 0 ||
+        throw(ArgumentError("`$name` must be a positive integer, got $value"))
+    return Int(value)
+end
+_save_dimension(name::Symbol, value) =
+    throw(ArgumentError("`$name` must be a positive integer, got $value"))
+
+# Runs `f` with `layout.width`/`layout.height` set, then restores the layout exactly.
+# `EasyConfig.Config` auto-vivifies on read — `layout.width` on a layout without a
+# width *inserts* an empty `Config` that serializes as `"width":{}` — so every read
+# is `haskey`-guarded and absent keys are removed again rather than reset.
+function _with_layout_size(f::Function, plot::PlotlyLight.Plot, width, height)
+    original = Dict{Symbol, Any}(
+        k => plot.layout[k] for k in (:width, :height) if haskey(plot.layout, k)
+    )
+    isnothing(width) || setproperty!(plot.layout, :width, width)
+    isnothing(height) || setproperty!(plot.layout, :height, height)
+    try
+        return f()
+    finally
+        for k in (:width, :height)
+            if haskey(original, k)
+                setproperty!(plot.layout, k, original[k])
+            else
+                delete!(plot.layout, k)
+            end
+        end
+    end
+end
 
 # Two-arg `save_plot` for PlotlyLight plots; inferred from the plot type so
 # callers can write `save_plot(p, "out.html")` and hit the right backend.
@@ -199,27 +228,26 @@ function PowerGraphics.save_plot(plot::PlotlyLight.Plot, filename::String; kwarg
 end
 
 function PowerGraphics.save_plot(
-    plot,
+    plot::PlotlyLight.Plot,
     filename::String,
     backend::PowerGraphics.PlotlyLightBackend;
     kwargs...,
 )
-    save_kwargs =
-        Dict{Symbol, Any}(((k, v) for (k, v) in kwargs if k in SUPPORTED_PLOTLY_SAVE_KWARGS))
-    @info "saving plot" filename
-    if last(splitext(filename)) == ".html"
-        open(filename, "w") do io
-            show(io, MIME("text/html"), plot; save_kwargs...)
-        end
-    else
+    width = _save_dimension(:width, get(kwargs, :width, nothing))
+    height = _save_dimension(:height, get(kwargs, :height, nothing))
+    isnothing(get(kwargs, :scale, nothing)) ||
+        @warn "`scale` is ignored for HTML output; it only applies to the CairoMakie backend."
+    if lowercase(last(splitext(filename))) != ".html"
         # PlotlyLight doesn't have built-in image export
         # Users need to save HTML and convert externally, or use PlotlyBase.jl
         @warn "PlotlyLight only supports HTML export. Saving as HTML instead." filename
-        html_filename = replace(filename, r"\.[^.]+$" => ".html")
-        open(html_filename, "w") do io
-            show(io, MIME("text/html"), plot; save_kwargs...)
+        filename = replace(filename, r"\.[^.]+$" => ".html")
+    end
+    @info "saving plot" filename
+    _with_layout_size(plot, width, height) do
+        open(filename, "w") do io
+            show(io, MIME("text/html"), plot)
         end
-        return html_filename
     end
     return filename
 end
