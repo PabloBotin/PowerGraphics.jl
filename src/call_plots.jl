@@ -837,31 +837,46 @@ end
 end
 
 """
-    save_plot(plot, filename)
+    save_plot(plot, filename; kwargs...)
+    save_plot(plot, filename, backend; kwargs...)
 
-Saves a plot to the specified filename. The backend is chosen from the plot
-object's type: CairoMakie plots dispatch to the CairoMakie writer (png/pdf/svg),
-PlotlyLight plots dispatch to the PlotlyLight writer (html).
+Saves a plot to the specified filename. In the two-argument form the backend is
+chosen from the plot object's type: CairoMakie plots dispatch to the CairoMakie
+writer (png/pdf/svg), PlotlyLight plots dispatch to the PlotlyLight writer (html).
+The three-argument form takes the backend (`CairoMakieBackend()` or
+`PlotlyLightBackend()`) explicitly.
 
 # Arguments
 
 - `plot`: plot object returned by a `plot_*` function
 - `filename::String` : path to save to
+- `backend` : `CairoMakieBackend()` or `PlotlyLightBackend()`, when given explicitly
 
 # Example
 
 ```julia
 res = solve_op_problem!(OpProblem)
 plot = plot_fuel(res)
-save_plot(plot, "my_plot.png")               # CairoMakie
+save_plot(plot, "my_plot.png"; width = 800, height = 600, scale = 2)   # CairoMakie
 plot = plot_fuel_plotly(res)
-save_plot(plot, "my_plot.html")               # PlotlyLight
+save_plot(plot, "my_plot.html"; width = 800, height = 600)             # PlotlyLight
 ```
 
-# Accepted Key Words (PlotlyLight backend only; CairoMakie ignores them)
-- `width::Union{Nothing,Int}=nothing`
-- `height::Union{Nothing,Int}=nothing`
-- `scale::Union{Nothing,Real}=nothing`
+# Accepted Key Words
+
+- `width::Int`, `height::Int`: size of the saved output, in the backend's own units.
+  They affect only the written file — the plot object is left unchanged. CairoMakie
+  reads them as Makie scene units, which the default resolution renders at 2 px each
+  for png (`width = 800` writes a 1600 px wide file) and 0.75 pt each for pdf/svg, and
+  fills a missing dimension from the figure's current size. PlotlyLight writes them to
+  the layout as CSS pixels and leaves a missing dimension to Plotly's own default.
+- `scale::Real`: multiplies CairoMakie's default output resolution — pixel dimensions
+  for png, page extent for pdf/svg. Being relative to those defaults, it overrides a
+  custom `px_per_unit`/`pt_per_unit` theme. CairoMakie only; ignored with a warning for
+  HTML.
+
+These keywords may also be passed to any `plot_*` function, which forwards them to
+`save_plot` when saving with `save`.
 """
 # The 2-arg `save_plot(plot, filename)` form is defined per-backend via type
 # dispatch — see `ext/plot_recipes.jl` (CairoMakie) and `ext/plotly_recipes.jl`

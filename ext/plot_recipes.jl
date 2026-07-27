@@ -328,6 +328,22 @@ function PowerGraphics.save_plot(plot::CairoMakiePlot, filename::String; kwargs.
     )
 end
 
+_save_dimension(::Symbol, ::Nothing) = nothing
+function _save_dimension(name::Symbol, value::Integer)
+    value > 0 ||
+        throw(ArgumentError("`$name` must be a positive integer, got $value"))
+    return Int(value)
+end
+_save_dimension(name::Symbol, value) =
+    throw(ArgumentError("`$name` must be a positive integer, got $value"))
+
+_save_scale(::Nothing) = nothing
+function _save_scale(value::Real)
+    value > 0 || throw(ArgumentError("`scale` must be a positive number, got $value"))
+    return float(value)
+end
+_save_scale(value) = throw(ArgumentError("`scale` must be a positive number, got $value"))
+
 function PowerGraphics.save_plot(
     plot::CairoMakiePlot,
     filename::String,
@@ -344,7 +360,35 @@ function PowerGraphics.save_plot(
             ),
         )
     end
-    CairoMakie.save(filename, plot.figure)
+    width = _save_dimension(:width, get(kwargs, :width, nothing))
+    height = _save_dimension(:height, get(kwargs, :height, nothing))
+    scale = _save_scale(get(kwargs, :scale, nothing))
+
+    # Only the three save-time keywords are forwarded: the caller's kwargs are the
+    # full plot kwarg set, which `CairoMakie.save` would reject or misinterpret.
+    save_kwargs = Dict{Symbol, Any}()
+    if !isnothing(scale)
+        # Each format reads a different resolution knob — png uses `px_per_unit`,
+        # pdf uses `pt_per_unit`, svg uses `pt_per_unit / 0.75` — so scale both
+        # Makie defaults and let each format pick the one it cares about.
+        save_kwargs[:px_per_unit] = 2.0 * scale
+        save_kwargs[:pt_per_unit] = 0.75 * scale
+    end
+
+    scene = plot.figure.scene
+    original_size = size(scene)
+    resized = !isnothing(width) || !isnothing(height)
+    if resized
+        save_kwargs[:size] =
+            (something(width, original_size[1]), something(height, original_size[2]))
+    end
+    try
+        CairoMakie.save(filename, plot.figure; save_kwargs...)
+    finally
+        # `CairoMakie.save` resizes the scene in place and never restores it, so
+        # without this the saved size would leak into the caller's figure.
+        resized && resize!(scene, original_size)
+    end
     @info "saved plot" filename
     return filename
 end

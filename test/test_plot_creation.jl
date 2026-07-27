@@ -1,5 +1,16 @@
 file_path = TEST_OUTPUTS
 
+# Width and height of a PNG, read straight out of the IHDR chunk (big-endian
+# UInt32 at byte offsets 16 and 20), to avoid pulling in an image reader.
+function png_size(filename::String)
+    return open(filename, "r") do io
+        seek(io, 16)
+        width = ntoh(read(io, UInt32))
+        height = ntoh(read(io, UInt32))
+        (Int(width), Int(height))
+    end
+end
+
 function test_plots(file_path::String; backend_pkg::String = "cairomakie")
     # Select plot functions based on backend
     if backend_pkg == "cairomakie"
@@ -374,6 +385,117 @@ function test_plots(file_path::String; backend_pkg::String = "cairomakie")
         @test isempty(setdiff(list, expected_files))
 
         @info "removing alternate test fuel outputs"
+        cleanup && rm(out_path; recursive = true)
+    end
+
+    @testset "test $backend_pkg save sizing" begin
+        out_path = joinpath(file_path, backend_pkg * "_save_sizing")
+        !isdir(out_path) && mkdir(out_path)
+        p = plot_dataframe_fn(
+            gen_uc.data[:ActivePowerVariable__ThermalStandard],
+            gen_uc.time;
+            set_display = false,
+            title = "sizing",
+            stack = true,
+        )
+
+        if backend_pkg == "cairomakie"
+            original_size = size(p.figure.scene)
+
+            default_png = joinpath(out_path, "default.png")
+            PG.save_plot(p, default_png)
+            # The 1280x720 default figure at Makie's default px_per_unit of 2.
+            @test png_size(default_png) == (2560, 1440)
+
+            sized_png = joinpath(out_path, "sized.png")
+            PG.save_plot(p, sized_png; width = 800, height = 600)
+            @test png_size(sized_png) == (1600, 1200)
+
+            scaled_png = joinpath(out_path, "scaled.png")
+            PG.save_plot(p, scaled_png; width = 800, height = 600, scale = 2)
+            @test png_size(scaled_png) == (3200, 2400)
+
+            # Saving at a different size must never mutate the caller's figure.
+            @test size(p.figure.scene) == original_size
+
+            # Save-time sizing is independent of the plot-time `size` kwarg, which
+            # `save_plot` must ignore even though `plot_*` forwards it here.
+            ignores_size = joinpath(out_path, "ignores_size.png")
+            PG.save_plot(p, ignores_size; size = (300, 200))
+            @test png_size(ignores_size) == (2560, 1440)
+
+            # `CairoMakie.save` resizes the scene before it writes, so a failure
+            # mid-write must still leave the figure at its original size.
+            @test_throws Exception PG.save_plot(
+                p,
+                joinpath(out_path, "missing_dir", "x.png");
+                width = 321,
+                height = 123,
+            )
+            @test size(p.figure.scene) == original_size
+
+            for format in ("svg", "pdf")
+                vector_file = joinpath(out_path, "vector.$format")
+                PG.save_plot(p, vector_file; width = 400, height = 300, scale = 1.5)
+                @test filesize(vector_file) > 0
+            end
+            @test size(p.figure.scene) == original_size
+
+            @test_throws ArgumentError PG.save_plot(p, joinpath(out_path, "bad.html"))
+            @test_throws ArgumentError PG.save_plot(
+                p,
+                joinpath(out_path, "bad.png");
+                width = 0,
+            )
+            @test_throws ArgumentError PG.save_plot(
+                p,
+                joinpath(out_path, "bad.png");
+                scale = -1,
+            )
+        else
+            @test !haskey(p.layout, :width)
+
+            sized_html = joinpath(out_path, "sized.html")
+            PG.save_plot(p, sized_html; width = 640, height = 480)
+            html = read(sized_html, String)
+            @test occursin("\"width\":640", html)
+            @test occursin("\"height\":480", html)
+            # An unguarded `layout.width` read would serialize as `"width":{}`.
+            @test !occursin("\"width\":{}", html)
+            # The layout must be left exactly as it was found.
+            @test !haskey(p.layout, :width)
+            @test !haskey(p.layout, :height)
+
+            # Keywords `show` cannot accept must be dropped, not forwarded.
+            extra_html = joinpath(out_path, "extra.html")
+            PG.save_plot(p, extra_html; full_html = true)
+            @test filesize(extra_html) > 0
+
+            @test_logs (:warn, r"scale") match_mode = :any PG.save_plot(
+                p,
+                joinpath(out_path, "scaled.html");
+                scale = 2,
+            )
+
+            # Non-HTML requests fall back to HTML and report the name written.
+            written = @test_logs (:warn, r"HTML") match_mode = :any PG.save_plot(
+                p,
+                joinpath(out_path, "raster.png"),
+            )
+            @test written == joinpath(out_path, "raster.html")
+            @test isfile(written)
+
+            # A failed write must still restore the layout it borrowed.
+            @test_throws Exception PG.save_plot(
+                p,
+                joinpath(out_path, "missing_dir", "x.html");
+                width = 640,
+                height = 480,
+            )
+            @test !haskey(p.layout, :width)
+            @test !haskey(p.layout, :height)
+        end
+
         cleanup && rm(out_path; recursive = true)
     end
 
