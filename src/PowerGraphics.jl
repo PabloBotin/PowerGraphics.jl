@@ -7,11 +7,15 @@ export plot_dataframe, plot_dataframe_plotly
 export plot_powerdata, plot_powerdata_plotly
 export plot_results, plot_results_plotly
 export plot_fuel, plot_fuel_plotly
+export plot_duration_curve, plot_duration_curve_plotly
+export plot_histogram, plot_histogram_plotly
 export plot_demand!, plot_demand_plotly!
 export plot_dataframe!, plot_dataframe_plotly!
 export plot_powerdata!, plot_powerdata_plotly!
 export plot_results!, plot_results_plotly!
 export plot_fuel!, plot_fuel_plotly!
+export plot_duration_curve!, plot_duration_curve_plotly!
+export plot_histogram!, plot_histogram_plotly!
 export report
 export save_plot
 export label_component, label_variable, label_acronym, label_first_word

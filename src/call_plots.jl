@@ -15,6 +15,39 @@ end
 _display_plot(::CairoMakieBackend, p) = display(p.figure)
 _display_plot(::PlotlyLightBackend, p) = display(p)
 
+################################### X AXIS #################################
+
+# Plot x axes are normally `DateTime`, but the transform plots (duration curve,
+# histogram) hand the recipes a plain numeric axis instead. Dispatching on the
+# axis element type lets both backends share one code path while leaving the
+# temporal behavior untouched.
+_is_temporal(::AbstractVector{<:Dates.TimeType}) = true
+_is_temporal(::AbstractVector) = false
+
+_time_vector(time_range::DataFrames.DataFrame) = time_range[:, 1]
+_time_vector(time_range) = collect(time_range)
+
+# A temporal axis labels itself with the span it covers; a numeric axis has no
+# such span and relies on the `x_label` kwarg.
+function _x_axis_label(time_range::AbstractVector{<:Dates.TimeType}, x_label)
+    span = IS.convert_compound_period(length(time_range) * (time_range[2] - time_range[1]))
+    return something(x_label, "$span")
+end
+_x_axis_label(::AbstractVector, x_label) = something(x_label, "")
+
+# Bar plots over time report energy, so per-timestep values are divided by the
+# number of samples per hour. Off a time axis there is nothing to normalize by.
+function _x_interval(time_range::AbstractVector{<:Dates.TimeType})
+    return Dates.Millisecond(Dates.Hour(1)) /
+           Dates.Millisecond(time_range[2] - time_range[1])
+end
+_x_interval(::AbstractVector) = 1.0
+
+# CairoMakie needs float axes throughout (`band` rejects `DateTime`), so a
+# temporal axis is converted to unix seconds.
+_x_values(time_range::AbstractVector{<:Dates.TimeType}) = Dates.datetime2unix.(time_range)
+_x_values(time_range::AbstractVector) = float.(time_range)
+
 # Translation table for the user-facing `aggregate::String` kwarg of
 # `plot_demand` to the typed `aggregation::Type` kwarg expected by
 # `PowerAnalytics.get_load_data(::PSY.System; aggregation = …)`. The
@@ -377,9 +410,13 @@ function _plot_dataframe!(
     backend;
     kwargs...,
 )
-    tr =
-        typeof(time_range) == DataFrames.DataFrame ? time_range[:, 1] : collect(time_range)
-    return _dataframe_plots_internal(p, variable, tr, backend; kwargs...)
+    return _dataframe_plots_internal(
+        p,
+        variable,
+        _time_vector(time_range),
+        backend;
+        kwargs...,
+    )
 end
 
 """
@@ -454,6 +491,376 @@ function plot_dataframe_plotly!(
     kwargs...,
 )
     return _plot_dataframe!(p, variable, time_range, PlotlyLightBackend(); kwargs...)
+end
+
+################################# Duration Curve ##############################
+
+# Elapsed hours since the first sample. A non-temporal axis has no clock to read
+# from, so the sample index stands in for it.
+function _elapsed_hours(time_range::AbstractVector{<:Dates.TimeType})
+    t0 = first(time_range)
+    return [Dates.value(Dates.Millisecond(t - t0)) / 3.6e6 for t in time_range]
+end
+_elapsed_hours(time_range::AbstractVector) = collect(0.0:(length(time_range) - 1))
+
+"""
+X values and default x label for a duration curve, given the `x_axis` mode and
+the time axis the data was sampled on.
+"""
+function _duration_curve_x(x_axis::Symbol, time_range::AbstractVector)
+    if x_axis === :percent
+        # `range` rejects `length = 1` between distinct endpoints, so a degenerate
+        # axis (a single sample, or none) gets its percentages directly.
+        n = length(time_range)
+        percent = n > 1 ? collect(range(0.0, 100.0; length = n)) : zeros(n)
+        return (percent, "Percent of time")
+    elseif x_axis === :hours
+        return (_elapsed_hours(time_range), "Hours")
+    else
+        throw(
+            ArgumentError(
+                "Unknown `x_axis` value $(repr(x_axis)). Valid options: :percent, :hours.",
+            ),
+        )
+    end
+end
+
+"""
+    plot_duration_curve(df)
+    plot_duration_curve(df, time_range)
+
+Plots a duration curve from a [`DataFrames.DataFrame`](@extref): each column is sorted
+descending on its own and drawn against the fraction of time (or the number of hours)
+its value is met or exceeded.
+
+# Arguments
+
+- `df::DataFrames.DataFrame`: `DataFrame` where each row represents a time period and each column represents a trace.
+If only the `DataFrame` is provided, it must have a column of `DateTime` values.
+- `time_range::Union{DataFrames.DataFrame, Array, StepRange}`: The time periods of the data
+
+# Example
+
+```julia
+var_name = :ActivePowerVariable__ThermalStandard
+df = PowerSimulations.read_realized_variable(results, var_name)
+plot = plot_duration_curve(df; x_axis = :hours)
+```
+
+# Accepted Key Words
+- `x_axis::Symbol = :percent`: `:percent` for 0–100% of the time span, or `:hours` for elapsed hours
+- `x_label::String`: override the x-axis label (defaults to `"Percent of time"` or `"Hours"`)
+- `y_label::String`: label for the y axis
+- `set_display::Bool = true`: set to false to prevent the plots from displaying
+- `save::String = "file_path"`: set a file path to save the plots
+- `format::String = "png"`: file extension for saved plots. CairoMakie supports `"png"`, `"pdf"`, `"svg"`. PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
+- `seriescolor::Array`: Set different colors for the plots
+- `palette` : color palette from [`load_palette`](@ref)
+- `title::String = "Title"`: Set a title for the plots
+- `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`.
+- `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
+- `legend_font_size::Number`: override the legend label font size
+"""
+function plot_duration_curve(df::DataFrames.DataFrame; kwargs...)
+    return plot_duration_curve!(_empty_plot(), PA.no_datetime(df), df.DateTime; kwargs...)
+end
+
+function plot_duration_curve(
+    df::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return plot_duration_curve!(_empty_plot(), df, time_range; kwargs...)
+end
+
+@doc (@doc plot_duration_curve) function plot_duration_curve_plotly(
+    df::DataFrames.DataFrame;
+    kwargs...,
+)
+    return plot_duration_curve_plotly!(
+        _empty_plot_plotly(),
+        PA.no_datetime(df),
+        df.DateTime;
+        kwargs...,
+    )
+end
+
+function plot_duration_curve_plotly(
+    df::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return plot_duration_curve_plotly!(_empty_plot_plotly(), df, time_range; kwargs...)
+end
+
+function _plot_duration_curve!(
+    p,
+    variable::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange},
+    backend;
+    kwargs...,
+)
+    ndf = PA.no_datetime(variable)
+    # Each column is ranked independently: a duration curve answers "how often is
+    # *this* series above a level", not "what did the system look like at time t".
+    sorted = DataFrames.DataFrame([
+        name => sort(ndf[!, name]; rev = true) for name in DataFrames.names(ndf)
+    ])
+    x, default_x_label =
+        _duration_curve_x(get(kwargs, :x_axis, :percent), _time_vector(time_range))
+    x_label = get(kwargs, :x_label, default_x_label)
+    kwargs = popkwargs(popkwargs(kwargs, :x_axis), :x_label)
+    return _plot_dataframe!(p, sorted, x, backend; x_label = x_label, kwargs...)
+end
+
+"""
+    plot_duration_curve!(plot, df)
+    plot_duration_curve!(plot, df, time_range)
+    plot_duration_curve_plotly!(plot, df)
+    plot_duration_curve_plotly!(plot, df, time_range)
+
+Plots a duration curve from a [`DataFrames.DataFrame`](@extref) onto an existing plot
+handle. The `_plotly` variants render with the PlotlyLight backend instead of CairoMakie.
+
+# Arguments
+
+- `plot`: existing plot handle returned by a previous PowerGraphics plot call (e.g. [`plot_duration_curve`](@ref))
+- `df::DataFrames.DataFrame`: `DataFrame` where each row represents a time period and each column represents a trace.
+If only the `DataFrame` is provided, it must have a column of `DateTime` values.
+- `time_range::Union{DataFrames.DataFrame, Array, StepRange}`: The time periods of the data
+
+# Accepted Key Words
+- `x_axis::Symbol = :percent`: `:percent` for 0–100% of the time span, or `:hours` for elapsed hours
+- `x_label::String`: override the x-axis label (defaults to `"Percent of time"` or `"Hours"`)
+- `y_label::String`: label for the y axis
+- `set_display::Bool = true`: set to false to prevent the plots from displaying
+- `save::String = "file_path"`: set a file path to save the plots
+- `format::String = "png"`: file extension for saved plots. CairoMakie supports `"png"`, `"pdf"`, `"svg"`. PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
+- `seriescolor::Array`: Set different colors for the plots
+- `palette` : color palette from [`load_palette`](@ref)
+- `title::String = "Title"`: Set a title for the plots
+- `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`.
+- `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
+- `legend_font_size::Number`: override the legend label font size
+"""
+function plot_duration_curve!(p, df::DataFrames.DataFrame; kwargs...)
+    return _plot_duration_curve!(
+        p,
+        PA.no_datetime(df),
+        df.DateTime,
+        CairoMakieBackend();
+        kwargs...,
+    )
+end
+
+function plot_duration_curve!(
+    p,
+    variable::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return _plot_duration_curve!(p, variable, time_range, CairoMakieBackend(); kwargs...)
+end
+
+@doc (@doc plot_duration_curve!) function plot_duration_curve_plotly!(
+    p,
+    df::DataFrames.DataFrame;
+    kwargs...,
+)
+    return _plot_duration_curve!(
+        p,
+        PA.no_datetime(df),
+        df.DateTime,
+        PlotlyLightBackend();
+        kwargs...,
+    )
+end
+
+function plot_duration_curve_plotly!(
+    p,
+    variable::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return _plot_duration_curve!(p, variable, time_range, PlotlyLightBackend(); kwargs...)
+end
+
+#################################### Histogram ################################
+
+# Sturges' rule, the default bin count.
+_sturges(n::Integer) = ceil(Int, log2(max(n, 1))) + 1
+
+"""
+Bin every column of `data` over one common edge range so the overlaid series stay
+comparable. Returns `(centers, counts)`, where `counts` is `bins × series`.
+"""
+function _histogram_bins(data::AbstractMatrix, bins::Int)
+    bins > 0 || throw(ArgumentError("`bins` must be positive, got $bins."))
+    lo, hi = float(minimum(data)), float(maximum(data))
+    # A degenerate range (every sample identical) would give zero-width bins.
+    if lo == hi
+        lo -= 0.5
+        hi += 0.5
+    end
+    width = (hi - lo) / bins
+    centers = [lo + (ix - 0.5) * width for ix in 1:bins]
+    counts = zeros(Int, bins, size(data, 2))
+    for col in 1:size(data, 2), value in view(data, :, col)
+        # The top bin is closed on the right so the maximum sample is not dropped.
+        counts[min(floor(Int, (value - lo) / width) + 1, bins), col] += 1
+    end
+    return centers, counts
+end
+
+"""
+    plot_histogram(df)
+    plot_histogram(df, time_range)
+
+Plots the value distribution of each column of a [`DataFrames.DataFrame`](@extref) as an
+overlaid histogram. All columns share one set of bin edges so their distributions can be
+compared directly.
+
+# Arguments
+
+- `df::DataFrames.DataFrame`: `DataFrame` where each row represents a time period and each column represents a trace.
+If only the `DataFrame` is provided, it must have a column of `DateTime` values.
+- `time_range::Union{DataFrames.DataFrame, Array, StepRange}`: The time periods of the data. Ignored except to
+identify the `DateTime` column, since a histogram has no time axis.
+
+# Example
+
+```julia
+var_name = :ActivePowerVariable__ThermalStandard
+df = PowerSimulations.read_realized_variable(results, var_name)
+plot = plot_histogram(df; bins = 20)
+```
+
+# Accepted Key Words
+- `bins::Int`: number of bins; defaults to Sturges' rule, `ceil(Int, log2(n)) + 1`
+- `x_label::String`: label for the x axis; defaults to the column label when there is only one series
+- `y_label::String = "Count"`: label for the y axis
+- `set_display::Bool = true`: set to false to prevent the plots from displaying
+- `save::String = "file_path"`: set a file path to save the plots
+- `format::String = "png"`: file extension for saved plots. CairoMakie supports `"png"`, `"pdf"`, `"svg"`. PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
+- `seriescolor::Array`: Set different colors for the plots
+- `palette` : color palette from [`load_palette`](@ref)
+- `title::String = "Title"`: Set a title for the plots
+- `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`.
+- `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
+- `legend_font_size::Number`: override the legend label font size
+"""
+function plot_histogram(df::DataFrames.DataFrame; kwargs...)
+    return plot_histogram!(_empty_plot(), PA.no_datetime(df); kwargs...)
+end
+
+function plot_histogram(
+    df::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return plot_histogram!(_empty_plot(), df, time_range; kwargs...)
+end
+
+@doc (@doc plot_histogram) function plot_histogram_plotly(
+    df::DataFrames.DataFrame;
+    kwargs...,
+)
+    return plot_histogram_plotly!(_empty_plot_plotly(), PA.no_datetime(df); kwargs...)
+end
+
+function plot_histogram_plotly(
+    df::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return plot_histogram_plotly!(_empty_plot_plotly(), df, time_range; kwargs...)
+end
+
+function _plot_histogram!(p, variable::DataFrames.DataFrame, backend; kwargs...)
+    ndf = PA.no_datetime(variable)
+    column_names = DataFrames.names(ndf)
+    data = Matrix(ndf)
+    centers, counts =
+        _histogram_bins(data, get(kwargs, :bins, _sturges(DataFrames.nrow(ndf))))
+    label_fn = get(kwargs, :label_fn, label_short)
+    default_x_label = length(column_names) == 1 ? label_fn(only(column_names)) : "Value"
+    x_label = get(kwargs, :x_label, default_x_label)
+    y_label = get(kwargs, :y_label, "Count")
+    kwargs = Dict{Symbol, Any}(
+        (k, v) for (k, v) in kwargs if k ∉ [:bins, :x_label, :y_label, :bar]
+    )
+    return _plot_dataframe!(
+        p,
+        DataFrames.DataFrame(counts, column_names),
+        centers,
+        backend;
+        bar = true,
+        x_label = x_label,
+        y_label = y_label,
+        kwargs...,
+    )
+end
+
+"""
+    plot_histogram!(plot, df)
+    plot_histogram!(plot, df, time_range)
+    plot_histogram_plotly!(plot, df)
+    plot_histogram_plotly!(plot, df, time_range)
+
+Plots the value distribution of each column of a [`DataFrames.DataFrame`](@extref) as an
+overlaid histogram, onto an existing plot handle. The `_plotly` variants render with the
+PlotlyLight backend instead of CairoMakie.
+
+# Arguments
+
+- `plot`: existing plot handle returned by a previous PowerGraphics plot call (e.g. [`plot_histogram`](@ref))
+- `df::DataFrames.DataFrame`: `DataFrame` where each row represents a time period and each column represents a trace.
+If only the `DataFrame` is provided, it must have a column of `DateTime` values.
+- `time_range::Union{DataFrames.DataFrame, Array, StepRange}`: The time periods of the data. Ignored except to
+identify the `DateTime` column, since a histogram has no time axis.
+
+# Accepted Key Words
+- `bins::Int`: number of bins; defaults to Sturges' rule, `ceil(Int, log2(n)) + 1`
+- `x_label::String`: label for the x axis; defaults to the column label when there is only one series
+- `y_label::String = "Count"`: label for the y axis
+- `set_display::Bool = true`: set to false to prevent the plots from displaying
+- `save::String = "file_path"`: set a file path to save the plots
+- `format::String = "png"`: file extension for saved plots. CairoMakie supports `"png"`, `"pdf"`, `"svg"`. PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
+- `seriescolor::Array`: Set different colors for the plots
+- `palette` : color palette from [`load_palette`](@ref)
+- `title::String = "Title"`: Set a title for the plots
+- `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`.
+- `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
+- `legend_font_size::Number`: override the legend label font size
+"""
+function plot_histogram!(p, df::DataFrames.DataFrame; kwargs...)
+    return _plot_histogram!(p, PA.no_datetime(df), CairoMakieBackend(); kwargs...)
+end
+
+function plot_histogram!(
+    p,
+    variable::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return _plot_histogram!(p, variable, CairoMakieBackend(); kwargs...)
+end
+
+@doc (@doc plot_histogram!) function plot_histogram_plotly!(
+    p,
+    df::DataFrames.DataFrame;
+    kwargs...,
+)
+    return _plot_histogram!(p, PA.no_datetime(df), PlotlyLightBackend(); kwargs...)
+end
+
+function plot_histogram_plotly!(
+    p,
+    variable::DataFrames.DataFrame,
+    time_range::Union{DataFrames.DataFrame, Array, StepRange};
+    kwargs...,
+)
+    return _plot_histogram!(p, variable, PlotlyLightBackend(); kwargs...)
 end
 
 ################################# Plotting PowerData ##########################

@@ -33,11 +33,12 @@ function PowerGraphics._dataframe_plots_internal(
     linestyle = get(kwargs, :linestyle, :solid)
     linewidth = get(kwargs, :linewidth, 1)
 
-    time_interval = PowerGraphics.IS.convert_compound_period(
-        length(time_range) * (time_range[2] - time_range[1]),
-    )
-    interval =
-        Dates.Millisecond(Dates.Hour(1)) / Dates.Millisecond(time_range[2] - time_range[1])
+    # `time_range` is a `DateTime` axis for every results-driven plot, but the
+    # transform plots (duration curve, histogram) pass a numeric axis instead.
+    # These three helpers dispatch on that so the drawing code below stays shared.
+    temporal = PowerGraphics._is_temporal(time_range)
+    x_label = PowerGraphics._x_axis_label(time_range, get(kwargs, :x_label, nothing))
+    interval = PowerGraphics._x_interval(time_range)
 
     if isnothing(plot)
         plot = PowerGraphics._empty_plot(backend)
@@ -64,7 +65,7 @@ function PowerGraphics._dataframe_plots_internal(
 
     # CairoMakie.band doesn't allow for DateTime axes. Every plot now gets
     # float axes instead so plots can be layered on the same Axis.
-    time_range_float = Dates.datetime2unix.(time_range)
+    x_float = PowerGraphics._x_values(time_range)
 
     data = Matrix(ndf)
     power_scale = get(kwargs, :power_scale, 1.0)
@@ -73,7 +74,7 @@ function PowerGraphics._dataframe_plots_internal(
     end
     labels = [label_fn(label) for label in column_names]
 
-    plot.axis.xlabel = "$time_interval"
+    plot.axis.xlabel = x_label
     plot.axis.ylabel = get(kwargs, :y_label, "")
     if title != " "  # Only set title if not default
         plot.axis.title = title
@@ -85,7 +86,23 @@ function PowerGraphics._dataframe_plots_internal(
     # manually with PolyElement below.
     bar_legend_entries = nothing
 
-    if bar
+    if bar && !temporal
+        # A numeric x axis carries its own bar positions (histogram bin centers),
+        # so there is nothing to integrate over time — each row is already a bar.
+        # Series are overlaid with transparency so distributions stay comparable.
+        bar_width = length(x_float) > 1 ? x_float[2] - x_float[1] : 1.0
+        for ix in 1:length(labels)
+            CairoMakie.barplot!(
+                plot.axis,
+                x_float,
+                data[:, ix];
+                color = (seriescolor[ix], 0.6),
+                label = string(labels[ix]),
+                width = bar_width,
+            )
+        end
+        plot.axis.xgridvisible = false
+    elseif bar
         plot_data = sum(data; dims = 1) ./ interval
 
         if stack
@@ -148,7 +165,7 @@ function PowerGraphics._dataframe_plots_internal(
                 if stair
                     CairoMakie.stairs!(
                         plot.axis,
-                        time_range_float,
+                        x_float,
                         outer;
                         color = color,
                         label = string(labels[ix]),
@@ -158,7 +175,7 @@ function PowerGraphics._dataframe_plots_internal(
                     )
                     CairoMakie.band!(
                         plot.axis,
-                        time_range_float,
+                        x_float,
                         lo,
                         up;
                         color = (color, 0.3),
@@ -171,7 +188,7 @@ function PowerGraphics._dataframe_plots_internal(
                     # the stack.
                     CairoMakie.band!(
                         plot.axis,
-                        time_range_float,
+                        x_float,
                         lo,
                         up;
                         color = (color, 0.7),
@@ -191,7 +208,7 @@ function PowerGraphics._dataframe_plots_internal(
                 if stair
                     CairoMakie.stairs!(
                         plot.axis,
-                        time_range_float,
+                        x_float,
                         outer;
                         color = color,
                         label = string(labels[ix]),
@@ -202,7 +219,7 @@ function PowerGraphics._dataframe_plots_internal(
                 else
                     CairoMakie.lines!(
                         plot.axis,
-                        time_range_float,
+                        x_float,
                         outer;
                         color = color,
                         label = string(labels[ix]),
@@ -217,7 +234,7 @@ function PowerGraphics._dataframe_plots_internal(
                 if stair
                     CairoMakie.stairs!(
                         plot.axis,
-                        time_range_float,
+                        x_float,
                         data[:, ix];
                         color = color,
                         label = string(labels[ix]),
@@ -228,7 +245,7 @@ function PowerGraphics._dataframe_plots_internal(
                 else
                     CairoMakie.lines!(
                         plot.axis,
-                        time_range_float,
+                        x_float,
                         data[:, ix];
                         color = color,
                         label = string(labels[ix]),
@@ -239,9 +256,14 @@ function PowerGraphics._dataframe_plots_internal(
             end
         end
 
-        tick_positions = [time_range_float[1], last(time_range_float)]
-        tick_labels = string.([time_range[1], last(time_range)])
-        plot.axis.xticks = (tick_positions, tick_labels)
+        # A DateTime axis is drawn as unix seconds, which auto-ticks into
+        # meaningless numbers — label the endpoints instead. A numeric axis
+        # already ticks sensibly on its own.
+        if temporal
+            tick_positions = [x_float[1], last(x_float)]
+            tick_labels = string.([time_range[1], last(time_range)])
+            plot.axis.xticks = (tick_positions, tick_labels)
+        end
     end
 
     CairoMakie.reset_limits!(plot.axis)
