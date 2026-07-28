@@ -148,6 +148,32 @@ function test_plots(file_path::String; backend_pkg::String = "cairomakie")
             stack = true,
         )
 
+        # `combine_categories = false` (issue #111) plots one series per component
+        # column, qualified as `Category__Component`.
+        flat_names = names(PG._flatten_categories(gen_uc.data))
+        expected_series = sum(size(no_datetime(df), 2) for df in values(gen_uc.data))
+        @test length(flat_names) == expected_series
+        @test "ActivePowerVariable__ThermalStandard__Solitude" in flat_names
+        # `test_batt` appears in both storage categories: it must stay two series
+        @test filter(n -> endswith(n, "__test_batt"), flat_names) == [
+            "ActivePowerInVariable__EnergyReservoirStorage__test_batt",
+            "ActivePowerOutVariable__EnergyReservoirStorage__test_batt",
+        ]
+        p = plot_powerdata_fn(
+            gen_uc;
+            set_display = set_display,
+            title = "pg_data_uncombined",
+            save = out_path,
+            combine_categories = false,
+        )
+        plot_length = backend_pkg == "cairomakie" ? p.series_count : length(p.data)
+        @test plot_length == expected_series
+
+        # combining still collapses each category to a single series
+        p = plot_powerdata_fn(gen_uc; set_display = set_display)
+        plot_length = backend_pkg == "cairomakie" ? p.series_count : length(p.data)
+        @test plot_length == length(gen_uc.data)
+
         list = readdir(out_path)
         # PlotlyLight only supports HTML export, CairoMakie supports PNG
         file_ext = backend_pkg == "plotlylight" ? ".html" : ".png"
@@ -156,6 +182,7 @@ function test_plots(file_path::String; backend_pkg::String = "cairomakie")
             "pg_data_stack$file_ext",
             "pg_data_bar$file_ext",
             "pg_data_bar_stack$file_ext",
+            "pg_data_uncombined$file_ext",
         ]
         # expected results not created
         @test isempty(setdiff(expected_files, list))

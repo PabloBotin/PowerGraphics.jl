@@ -469,7 +469,7 @@ Makes a plot from a `PowerAnalytics.PowerData` object, such as the result of
 - `powerdata::PowerAnalytics.PowerData`: The `PowerData` object to be plotted
 
 # Accepted Key Words
-- `combine_categories::Bool = false` : plot category values or each value in a category
+- `combine_categories::Bool = true` : plot one series per aggregated category (`true`) or one series per component, named `Category__Component` (`false`)
 - `curtailment::Bool`: plot the curtailment with the variable
 - `set_display::Bool = true`: set to false to prevent the plots from displaying
 - `save::String = "file_path"`: set a file path to save the plots
@@ -495,6 +495,28 @@ end
     return plot_powerdata_plotly!(_empty_plot_plotly(), powerdata; kwargs...)
 end
 
+"""
+Concatenate the per-category `DataFrame`s of a `PowerData` into the single wide
+`DataFrame` that the plotting backends take, qualifying every column as
+`Category__Component`. The qualification follows PowerAnalytics'
+`metric_selector_to_string` convention and is what keeps the names unique: the
+same component name recurs across categories (e.g. a battery under both
+`ActivePowerInVariable__EnergyReservoirStorage` and `ActivePowerOutVariable__…`).
+Categories are visited in sorted order because `Dict` iteration order is not
+stable and would otherwise shuffle series and legend entries between calls.
+"""
+function _flatten_categories(data::Dict{Symbol, DataFrames.DataFrame})
+    dfs = DataFrames.DataFrame[]
+    for key in sort(collect(keys(data)))
+        df = PA.no_datetime(data[key])
+        isempty(df) && continue
+        DataFrames.rename!(c -> string(key) * PA.COMPONENT_NAME_DELIMITER * c, df)
+        push!(dfs, df)
+    end
+    isempty(dfs) && return DataFrames.DataFrame()
+    return DataFrames.hcat(dfs...)
+end
+
 function _plot_powerdata!(p, powerdata::PA.PowerData, backend; kwargs...)
     title = get(kwargs, :title, "")
     set_display = get(kwargs, :set_display, true)
@@ -505,7 +527,7 @@ function _plot_powerdata!(p, powerdata::PA.PowerData, backend; kwargs...)
         names = get(kwargs, :names, nothing)
         data = PA.combine_categories(powerdata.data; names = names, aggregate = aggregate)
     else
-        data = powerdata.data
+        data = _flatten_categories(powerdata.data)
     end
     kwargs =
         Dict{Symbol, Any}((k, v) for (k, v) in kwargs if k ∉ [:title, :save, :set_display])
@@ -535,7 +557,7 @@ variant renders with the PlotlyLight backend instead of CairoMakie.
 - `powerdata::PowerAnalytics.PowerData`: The `PowerData` object to be plotted
 
 # Accepted Key Words
-- `combine_categories::Bool = false` : plot category values or each value in a category
+- `combine_categories::Bool = true` : plot one series per aggregated category (`true`) or one series per component, named `Category__Component` (`false`)
 - `curtailment::Bool`: plot the curtailment with the variable
 - `set_display::Bool = true`: set to false to prevent the plots from displaying
 - `save::String = "file_path"`: set a file path to save the plots
@@ -572,7 +594,7 @@ Makes a plot from a results dictionary object
 - `results::Dict{String, DataFrame`: The results to be plotted
 
 # Accepted Key Words
-- `combine_categories::Bool = false` : plot category values or each value in a category
+- `combine_categories::Bool = true` : plot one series per aggregated category (`true`) or one series per component, named `Category__Component` (`false`)
 - `curtailment::Bool`: plot the curtailment with the variable
 - `set_display::Bool = true`: set to false to prevent the plots from displaying
 - `save::String = "file_path"`: set a file path to save the plots
@@ -609,7 +631,7 @@ Makes a plot from a results dictionary
 - `results::Dict{String, DataFrame}`: The results to be plotted
 
 # Accepted Key Words
-- `combine_categories::Bool = false` : plot category values or each value in a category
+- `combine_categories::Bool = true` : plot one series per aggregated category (`true`) or one series per component, named `Category__Component` (`false`)
 - `curtailment::Bool`: plot the curtailment with the variable
 - `set_display::Bool = true`: set to false to prevent the plots from displaying
 - `save::String = "file_path"`: set a file path to save the plots
