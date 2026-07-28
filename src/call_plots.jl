@@ -720,7 +720,7 @@ plot = plot_fuel(res)
 
 # Accepted Key Words
 - `generator_mapping_file` = "file_path" : file path to yaml defining generator category by fuel and primemover
-- `slacks::Bool = true` : display slack variables
+- `slacks::Bool = true` : display the system balance slack variables as "Unserved Energy" and "Over Generation". Nodal and area formulations attach one slack per bus/area; those are summed into a single series per direction. Reactive slacks (the `"Q"` meta of full AC formulations) are excluded, since this is an active-power plot.
 - `load::Bool = true` : display load line
 - `curtailment::Bool = true`: To plot the curtailment in the stack plot
 - `storage::Bool = true`: include storage components (as "<category> In"/"<category> Out" traces)
@@ -764,8 +764,8 @@ _report_plot_fuel(::PlotlyLightBackend, result; kwargs...) =
 # contributing component must vanish instead of producing all-zero columns.
 
 # TODO upstream: PowerAnalytics has no built-in metrics for these entry types
-# (it should export `calc_system_slack_down` and forecast metrics for the
-# storage/source time-series parameters); build them locally until then.
+# (it should export forecast metrics for the storage/source time-series
+# parameters); build them locally until then.
 const _CALC_POWER_OUTPUT =
     PA.make_component_metric_from_entry("PowerOutput", PA.PSI.PowerOutput)
 const _CALC_ACTIVE_POWER_IN_FORECAST = PA.make_component_metric_from_entry(
@@ -776,8 +776,6 @@ const _CALC_ACTIVE_POWER_OUT_FORECAST = PA.make_component_metric_from_entry(
     "ActivePowerOutForecast",
     PA.PSI.ActivePowerOutTimeSeriesParameter,
 )
-const _CALC_SYSTEM_SLACK_DOWN =
-    PA.make_system_metric_from_entry("SystemSlackDown", PA.PSI.SystemBalanceSlackDown)
 
 # Fallback chain for generators: dispatch power if the component was modeled
 # with a variable, otherwise its forecast parameter (e.g. `FixedOutput`
@@ -803,12 +801,10 @@ const _SOURCE_IN_METRICS =
     ((PA.Metrics.calc_active_power_in, -1.0), (_CALC_ACTIVE_POWER_IN_FORECAST, 1.0))
 const _SOURCE_OUT_METRICS =
     ((PA.Metrics.calc_active_power_out, 1.0), (_CALC_ACTIVE_POWER_OUT_FORECAST, 1.0))
-# System balance slacks and their fixed display names, taken from
-# `PA.BALANCE_SLACKVARS` so the naming has a single source of truth.
-const _SLACK_METRICS = (
-    (PA.BALANCE_SLACKVARS[PA.PSI.SystemBalanceSlackUp], PA.Metrics.calc_system_slack_up),
-    (PA.BALANCE_SLACKVARS[PA.PSI.SystemBalanceSlackDown], _CALC_SYSTEM_SLACK_DOWN),
-)
+# System balance slack entry types, in the display order they stack. The names
+# come from `PA.BALANCE_SLACKVARS` so the naming has a single source of truth.
+const _SLACK_ENTRY_TYPES =
+    (PA.PSI.SystemBalanceSlackUp, PA.PSI.SystemBalanceSlackDown)
 
 # Catch-all category for components matched by no rule in the generator
 # mapping; matches the `Other` key in the default mapping and the color
@@ -941,21 +937,47 @@ function _accumulate_curtailment!(
     return acc
 end
 
+"""
+Every variable key holding a slack of entry type `T`, whatever component type
+owns it. PowerSimulations attaches the balance slacks to `PSY.System` under
+`CopperPlatePowerModel`/`PTDFPowerModel`, to `PSY.Area` under the area models,
+and to `PSY.ACBus` — one column per bus — under the power-flow models, so
+looking only for the `PSY.System` variant (as PowerAnalytics'
+`calc_system_slack_up` does) makes nodal and area slacks disappear. Full AC
+models split the bus slacks into `"P"` and `"Q"` metas; only `"P"` is returned,
+because the fuel stack is an active-power plot.
+"""
+function _slack_keys(result::IS.Results, ::Type{T}) where {T <: PA.PSI.VariableType}
+    return filter(PA.PSI.list_variable_keys(result)) do key
+        PA.PSI.get_entry_type(key) === T && key.meta != "Q"
+    end
+end
+
 function _accumulate_slacks!(acc::_FuelAccumulator, result::IS.Results)
-    for (name, metric) in _SLACK_METRICS
-        df = try
-            PA.compute(metric, result)
-        catch e
-            # Results without slack variables simply skip the category.
-            _is_missing_result_error(e) || rethrow()
-            continue
-        end
-        _add_fuel_values!(
-            acc,
-            name,
-            Vector{Dates.DateTime}(PA.get_time_vec(df)),
-            Vector{Float64}(PA.get_data_vec(df)),
+    for entry in _SLACK_ENTRY_TYPES
+        slack_keys = _slack_keys(result, entry)
+        # Results without slack variables simply skip the category.
+        isempty(slack_keys) && continue
+        name = PA.BALANCE_SLACKVARS[entry]
+        dfs = PA.PSI.read_results_with_keys(
+            result,
+            slack_keys;
+            table_format = IS.TableFormat.WIDE,
         )
+        for df in values(dfs)
+            # One column per bus/area (exactly one for the `PSY.System` case);
+            # the whole direction stacks as a single series.
+            vals = zeros(Float64, DataFrames.nrow(df))
+            for col in DataFrames.names(df, DataFrames.Not(PA.DATETIME_COL))
+                vals .+= df[!, col]
+            end
+            _add_fuel_values!(
+                acc,
+                name,
+                Vector{Dates.DateTime}(df[!, PA.DATETIME_COL]),
+                vals,
+            )
+        end
     end
     return acc
 end
@@ -1248,7 +1270,7 @@ PlotlyLight backend instead of CairoMakie.
 
 # Accepted Key Words
 - `generator_mapping_file` = "file_path" : file path to yaml defining generator category by fuel and primemover
-- `slacks::Bool = true` : display slack variables
+- `slacks::Bool = true` : display the system balance slack variables as "Unserved Energy" and "Over Generation". Nodal and area formulations attach one slack per bus/area; those are summed into a single series per direction. Reactive slacks (the `"Q"` meta of full AC formulations) are excluded, since this is an active-power plot.
 - `load::Bool = true` : display load line
 - `curtailment::Bool = true`: To plot the curtailment in the stack plot
 - `storage::Bool = true`: include storage components (as "<category> In"/"<category> Out" traces)
