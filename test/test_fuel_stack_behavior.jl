@@ -320,3 +320,104 @@ end
     @info("removing test files")
     rm(save_root; recursive = true)
 end
+
+# --- Balance slacks owned by something other than `PSY.System` (issue #94) ---
+
+# PowerSimulations attaches the balance slacks to the component type implied by
+# the network formulation, so a nodal formulation stores one slack column per
+# `ACBus`. The load is scaled up so the slacks are actually nonzero and the
+# aggregation assertions have teeth.
+function run_nodal_slack_model()
+    sys = deepcopy(PSB.build_system(PSB.PSITestSystems, "c_sys5_uc"))
+    for load in get_components(PowerLoad, sys)
+        set_max_active_power!(load, 3 * get_max_active_power(load))
+    end
+    template = ProblemTemplate(NetworkModel(DCPPowerModel; use_slacks = true))
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranch)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = optimizer_with_attributes(HiGHS.Optimizer),
+        horizon = Hour(6),
+    )
+    build!(model; output_dir = mktempdir())
+    solve!(model)
+    return OptimizationProblemResults(model)
+end
+
+@testset "bus-level balance slacks appear in the fuel stack" begin
+    res = run_nodal_slack_model()
+
+    # The regression of #94: the slacks are keyed on `ACBus`, not `System`, so
+    # looking only for the `System` variant made them vanish from the plot.
+    @test Set(
+        PSI.encode_key_as_string(k) for k in PSI.list_variable_keys(res) if
+        PSI.get_entry_type(k) in keys(PA.BALANCE_SLACKVARS)
+    ) == Set(["SystemBalanceSlackUp__ACBus", "SystemBalanceSlackDown__ACBus"])
+
+    p = plot_fuel_plotly(res; set_display = false, stack = true, auto_units = false)
+    trace_names = [t.name for t in p.data]
+    @test "Unserved Energy" in trace_names
+    @test "Over Generation" in trace_names
+
+    # Each direction is the row-wise sum over the per-bus columns.
+    for (name, entry) in (
+        ("Unserved Energy", PSI.SystemBalanceSlackUp),
+        ("Over Generation", PSI.SystemBalanceSlackDown),
+    )
+        entry_keys =
+            [k for k in PSI.list_variable_keys(res) if PSI.get_entry_type(k) == entry]
+        df = only(
+            values(
+                PSI.read_results_with_keys(
+                    res,
+                    entry_keys;
+                    table_format = IS.TableFormat.WIDE,
+                ),
+            ),
+        )
+        # More than DateTime plus one column, i.e. genuinely nodal.
+        @test ncol(df) > 2
+        expected = vec(sum(Matrix(no_datetime(df)); dims = 2))
+        @test collect(only([t for t in p.data if t.name == name]).y) ≈ expected
+    end
+    # The scaled-up load leaves energy unserved, so the sum above is not
+    # trivially zero.
+    @test sum(only([t for t in p.data if t.name == "Unserved Energy"]).y) > 0
+
+    p_cm = plot_fuel(res; set_display = false, stack = true)
+    @test p_cm.series_count == length(p.data)
+end
+
+@testset "system-level balance slacks are unchanged" begin
+    (_, results_ed) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
+
+    # The ED template is CopperPlate with `use_slacks = true`, so the slacks are
+    # keyed on `PSY.System` — the only case PowerAnalytics' own system metrics
+    # handle. Those values are the pre-fix reference and must be reproduced.
+    calc_slack_down =
+        PA.make_system_metric_from_entry("SystemSlackDown", PSI.SystemBalanceSlackDown)
+    p = plot_fuel_plotly(results_ed; set_display = false, stack = true, auto_units = false)
+    for (name, metric) in (
+        ("Unserved Energy", PA.Metrics.calc_system_slack_up),
+        ("Over Generation", calc_slack_down),
+    )
+        expected = PA.get_data_vec(PA.compute(metric, results_ed))
+        @test collect(only([t for t in p.data if t.name == name]).y) ≈ expected
+    end
+end
+
+@testset "results without balance slacks skip the slack categories" begin
+    (results_uc, _) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
+
+    # The UC template runs with `use_slacks = false`: no slack variable is
+    # stored, so the categories must be absent rather than raising.
+    @test !any(
+        PSI.get_entry_type(k) in keys(PA.BALANCE_SLACKVARS) for
+        k in PSI.list_variable_keys(results_uc)
+    )
+    p = plot_fuel_plotly(results_uc; set_display = false, stack = true)
+    @test isdisjoint([t.name for t in p.data], ["Unserved Energy", "Over Generation"])
+end
