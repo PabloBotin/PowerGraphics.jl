@@ -39,11 +39,13 @@ function PowerGraphics._dataframe_plots_internal(
         )[(plot_length + 1):end],
     )
 
-    time_interval = PowerGraphics.IS.convert_compound_period(
-        length(time_range) * (time_range[2] - time_range[1]),
-    )
-    interval =
-        Dates.Millisecond(Dates.Hour(1)) / Dates.Millisecond(time_range[2] - time_range[1])
+    # `time_range` is a `DateTime` axis for every results-driven plot, but the
+    # transform plots (duration curve, histogram) pass a numeric axis instead.
+    # These helpers dispatch on that so the trace code below stays shared;
+    # Plotly consumes both element types as `x` directly.
+    temporal = PowerGraphics._is_temporal(time_range)
+    x_label = PowerGraphics._x_axis_label(time_range, get(kwargs, :x_label, nothing))
+    interval = PowerGraphics._x_interval(time_range)
 
     if isempty(variable)
         @warn "Plot dataframe empty: skipping plot creation"
@@ -60,7 +62,23 @@ function PowerGraphics._dataframe_plots_internal(
     line_shape = get(kwargs, :stair, false) ? "hv" : "linear"
     line_dash = get(kwargs, :line_dash, "solid")
 
-    if bar
+    if bar && !temporal
+        # A numeric x axis carries its own bar positions (histogram bin centers),
+        # so there is nothing to integrate over time — each row is already a bar.
+        for ix = 1:length(names)
+            plot(
+                PlotlyLight.Config(;
+                    type = "bar",
+                    x = time_range,
+                    y = plot_data[:, ix],
+                    marker = PlotlyLight.Config(; color = seriescolor[ix]),
+                    name = names[ix],
+                    opacity = 0.6,
+                    showlegend = true,
+                ),
+            )
+        end
+    elseif bar
         plot_data = sum(plot_data; dims = 1) ./ interval
         if nofill
             plot_data = [plot_data; plot_data]
@@ -154,10 +172,19 @@ function PowerGraphics._dataframe_plots_internal(
     plot.layout.yaxis.showticklabels = true
     plot.layout.yaxis.rangemode = "tozero"
     plot.layout.yaxis.title.text = y_label
-    plot.layout.xaxis.showticklabels = !bar
-    plot.layout.xaxis.title.text = string(time_interval)
+    # Time-axis bar plots collapse to one bar per series, so their tick labels are
+    # redundant with the legend; a numeric axis needs its ticks.
+    plot.layout.xaxis.showticklabels = !(bar && temporal)
+    plot.layout.xaxis.title.text = x_label
     plot.layout.title.text = title
-    plot.layout.barmode = stack ? "relative" : "group"
+    if stack
+        plot.layout.barmode = "relative"
+    elseif bar && !temporal
+        # Overlay rather than dodge so histogram series remain aligned on shared bins.
+        plot.layout.barmode = "overlay"
+    else
+        plot.layout.barmode = "group"
+    end
 
     legend_position = get(kwargs, :legend_position, :right)
     legend_font_size = get(kwargs, :legend_font_size, nothing)
