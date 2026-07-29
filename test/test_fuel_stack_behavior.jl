@@ -348,6 +348,7 @@ function run_nodal_slack_model()
 end
 
 @testset "bus-level balance slacks appear in the fuel stack" begin
+    # The solve is backend-independent, so it runs once for both backends.
     res = run_nodal_slack_model()
 
     # The regression of #94: the slacks are keyed on `ACBus`, not `System`, so
@@ -357,12 +358,9 @@ end
         PSI.get_entry_type(k) in keys(PA.BALANCE_SLACKVARS)
     ) == Set(["SystemBalanceSlackUp__ACBus", "SystemBalanceSlackDown__ACBus"])
 
-    p = plot_fuel_plotly(res; set_display = false, stack = true, auto_units = false)
-    trace_names = [t.name for t in p.data]
-    @test "Unserved Energy" in trace_names
-    @test "Over Generation" in trace_names
-
-    # Each direction is the row-wise sum over the per-bus columns.
+    # Each direction is the row-wise sum over the per-bus columns; the oracle is
+    # read straight from the stored results and is the same for both backends.
+    expected_slacks = Dict{String, Vector{Float64}}()
     for (name, entry) in (
         ("Unserved Energy", PSI.SystemBalanceSlackUp),
         ("Over Generation", PSI.SystemBalanceSlackDown),
@@ -380,44 +378,88 @@ end
         )
         # More than DateTime plus one column, i.e. genuinely nodal.
         @test ncol(df) > 2
-        expected = vec(sum(Matrix(no_datetime(df)); dims = 2))
-        @test collect(only([t for t in p.data if t.name == name]).y) ≈ expected
+        expected_slacks[name] = vec(sum(Matrix(no_datetime(df)); dims = 2))
     end
-    # The scaled-up load leaves energy unserved, so the sum above is not
-    # trivially zero.
-    @test sum(only([t for t in p.data if t.name == "Unserved Energy"]).y) > 0
 
-    p_cm = plot_fuel(res; set_display = false, stack = true)
-    @test p_cm.series_count == length(p.data)
+    slack_counts = Int[]
+    for (backend_pkg, backend) in FUEL_BACKENDS
+        @testset "$backend_pkg bus-level slack aggregation" begin
+            p = plot_fuel(
+                res;
+                backend = backend,
+                set_display = false,
+                stack = true,
+                auto_units = false,
+            )
+            labels = series_labels(p)
+            @test "Unserved Energy" in labels
+            @test "Over Generation" in labels
+
+            for (name, expected) in expected_slacks
+                @test series_values(p, name) ≈ expected
+            end
+            # The scaled-up load leaves energy unserved, so the sum above is not
+            # trivially zero.
+            @test sum(series_values(p, "Unserved Energy")) > 0
+
+            push!(slack_counts, series_count(p))
+        end
+    end
+    # Both backends must draw the same number of series, or the slack categories
+    # reached only one of them.
+    @test allequal(slack_counts)
 end
 
 @testset "system-level balance slacks are unchanged" begin
-    (_, results_ed) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
-
     # The ED template is CopperPlate with `use_slacks = true`, so the slacks are
     # keyed on `PSY.System` — the only case PowerAnalytics' own system metrics
     # handle. Those values are the pre-fix reference and must be reproduced.
     calc_slack_down =
         PA.make_system_metric_from_entry("SystemSlackDown", PSI.SystemBalanceSlackDown)
-    p = plot_fuel_plotly(results_ed; set_display = false, stack = true, auto_units = false)
-    for (name, metric) in (
-        ("Unserved Energy", PA.Metrics.calc_system_slack_up),
-        ("Over Generation", calc_slack_down),
+    expected_system_slacks = Dict(
+        name => Vector{Float64}(PA.get_data_vec(PA.compute(metric, fuel_results_ed)))
+        for
+        (name, metric) in (
+            ("Unserved Energy", PA.Metrics.calc_system_slack_up),
+            ("Over Generation", calc_slack_down),
+        )
     )
-        expected = PA.get_data_vec(PA.compute(metric, results_ed))
-        @test collect(only([t for t in p.data if t.name == name]).y) ≈ expected
+
+    for (backend_pkg, backend) in FUEL_BACKENDS
+        @testset "$backend_pkg system-level slack values" begin
+            p = plot_fuel(
+                fuel_results_ed;
+                backend = backend,
+                set_display = false,
+                stack = true,
+                auto_units = false,
+            )
+            for (name, expected) in expected_system_slacks
+                @test series_values(p, name) ≈ expected
+            end
+        end
     end
 end
 
 @testset "results without balance slacks skip the slack categories" begin
-    (results_uc, _) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
-
     # The UC template runs with `use_slacks = false`: no slack variable is
     # stored, so the categories must be absent rather than raising.
     @test !any(
         PSI.get_entry_type(k) in keys(PA.BALANCE_SLACKVARS) for
-        k in PSI.list_variable_keys(results_uc)
+        k in PSI.list_variable_keys(fuel_results_uc)
     )
-    p = plot_fuel_plotly(results_uc; set_display = false, stack = true)
-    @test isdisjoint([t.name for t in p.data], ["Unserved Energy", "Over Generation"])
+    for (backend_pkg, backend) in FUEL_BACKENDS
+        @testset "$backend_pkg skips absent slack categories" begin
+            p = plot_fuel(
+                fuel_results_uc;
+                backend = backend,
+                set_display = false,
+                stack = true,
+            )
+            @test isdisjoint(
+                series_labels(p),
+                ["Unserved Energy", "Over Generation"],
+            )
+        end
+    end
 end
