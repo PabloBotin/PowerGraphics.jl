@@ -1,13 +1,5 @@
-# Backend-agnostic introspection of a PowerGraphics plot object.
-#
-# Value assertions used to be written against `PlotlyLight.Plot.data` only, so
-# CairoMakie was covered by shallow counts and a numeric regression could be
-# fixed in one backend while staying broken in the other (this is exactly how
-# PR #140's bar-plot bug survived). These helpers read the drawn series back out
-# of either backend's plot object so the same assertion can run against both.
-#
-# The two object models are genuinely different, so the extraction is documented
-# per case below rather than pretended to be identical.
+# Backend-agnostic introspection of PowerGraphics plot objects, so the same
+# assertions can run against CairoMakie and PlotlyLight.
 
 const CairoMakiePlot = Base.get_extension(PowerGraphics, :CairoMakieExt).CairoMakiePlot
 
@@ -35,10 +27,7 @@ end
 
 ########################### color canonicalization ###########################
 
-# CairoMakie hands back a `Colorant`; `band!` wraps it as `(color, alpha)`;
-# PlotlyLight keeps the palette's `"rgba(r, g, b, a)"` string, and callers may
-# pass a named color such as `"black"` (the net-load overlay does). All four
-# reduce to the same `(r, g, b)` byte triple.
+# Reduce `Colorant`, `(color, alpha)`, `"rgba(...)"` or named colors to `(r, g, b)`.
 _canonical_color(c::PowerGraphics.Colors.Colorant) = (
     round(Int, 255 * PowerGraphics.Colors.red(c)),
     round(Int, 255 * PowerGraphics.Colors.green(c)),
@@ -76,11 +65,8 @@ objects are skipped, which drops the companion `band!` of a stacked stair plot.
 
 - `:line` / `:stairs` — the y-values as drawn, which under a stacked `nofill` or
   `stair` call is the *cumulative outer envelope*, not the series' own data.
-- `:band` — the series' own contribution, recovered from the stored
-  `(lower, upper)` envelopes. The stack baseline is whichever envelope sits
-  nearer zero, so `sum(abs, upper) < sum(abs, lower)` identifies a
-  downward-stacked band; the comparison is scale-free, which matters because a
-  category generating nothing sums to float noise and is stacked downward.
+- `:band` — the series' own contribution, `upper - lower` (or `lower - upper` for
+  a downward-stacked band, i.e. when the upper envelope is nearer zero).
 - `:bar` — the bar heights. A stacked bar plot is a *single* `barplot!` with
   vector attributes, flattened here into one `PlotSeries` per bar to line up
   with PlotlyLight's one-trace-per-series output.
@@ -212,8 +198,7 @@ series_labels(plot) = [s.label for s in plot_series(plot)]
 """
     series_count(plot)
 
-Number of drawn series. Counts what is actually on the plot, so it is an
-independent check of CairoMakie's own `series_count` bookkeeping field.
+Number of drawn series.
 """
 series_count(plot) = length(plot_series(plot))
 
@@ -244,8 +229,7 @@ series_linewidths(plot) = [s.linewidth for s in plot_series(plot)]
 """
     series_map(plot)
 
-`label => values` for every drawn series. Throws if two series share a label,
-because a duplicate label would silently drop coverage.
+`label => values` for every drawn series. Throws on duplicate labels.
 """
 function series_map(plot)
     out = Dict{String, Vector{Float64}}()

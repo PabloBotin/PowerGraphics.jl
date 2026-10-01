@@ -20,12 +20,11 @@ function PowerGraphics._dataframe_plots_internal(
     seriescolor = opts.seriescolor
     interval = opts.interval
     plot_data = opts.data
-    # Plotly keys its stacking on a group name, so a `!` call layering new traces
-    # has to start its groups past the ones already on the plot.
+    # Offset stack group names past traces already on the plot.
     plot_length = length(plot.data)
 
     line_shape = opts.stair ? "hv" : "linear"
-    # Plotly spells the canonical `linestyle::Symbol` as a string.
+    # Plotly takes the dash style as a string.
     line_dash = string(opts.linestyle)
 
     if opts.bar

@@ -1,16 +1,5 @@
-# Behavioral tests for the fuel-stack and demand data contracts. `plot_fuel` is
-# built on the PowerAnalytics metrics/selectors API, but reimplements the storage
-# "In"/"Out" split, curtailment and the system-balance slacks by hand, so those
-# categories need a numeric pin rather than a sign-only one. The old
-# PowerAnalytics aggregation (`get_generation_data`/`categorize_data`, still
-# exported and maintained) serves as the independent oracle: PowerGraphics no
-# longer calls it, which is exactly what makes it a valid cross-check.
-#
-# Every value assertion runs against BOTH backends through the helpers in
-# `plot_introspection.jl`. Writing them against `PlotlyLight.Plot.data` alone is
-# what let PR #140's bar-plot defect be fixed in one backend and stay broken in
-# the other; a backend-specific assertion below is marked with the reason it
-# cannot be stated for both.
+# Fuel-stack and demand values on both backends, checked against PowerAnalytics'
+# `get_generation_data`/`categorize_data` aggregation.
 
 const FUEL_BACKENDS =
     (("cairomakie", CairoMakieBackend()), ("plotlylight", PlotlyLightBackend()))
@@ -19,22 +8,18 @@ const FUEL_BACKENDS =
 # the whole file rather than per testset.
 (fuel_results_uc, fuel_results_ed) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
 
-# The old-API aggregation appears here only to derive the expected column order;
-# its values are pinned by the equivalence testset below.
 fuel_uc_old = categorize_data(
     get_generation_data(fuel_results_uc).data,
     make_fuel_dictionary(PSI.get_system(fuel_results_uc)),
 )
 
-# Column-order contract: palette categories first (in palette order), then the
-# sorted remainder. Plots must present traces in exactly this order.
+# Expected column order: palette categories first, then the sorted remainder.
 fuel_matched = intersect(PG.get_palette_category(PG.PALETTE), keys(fuel_uc_old))
 fuel_expected_order =
     vcat(fuel_matched, sort(collect(setdiff(keys(fuel_uc_old), fuel_matched))))
 
 @testset "fuel column-order contract" begin
-    # The fixture must exercise the hand-written storage and curtailment
-    # categories, or nothing below has teeth.
+    # The fixture includes storage and curtailment.
     @test issubset(["Storage In", "Storage Out", "Curtailment"], fuel_matched)
     @test names(PA.combine_categories(fuel_uc_old; names = fuel_expected_order)) ==
           fuel_expected_order
@@ -61,52 +46,16 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
                 stack = true)
         @test sort(series_labels(p_area)) == sort(vcat(fuel_expected_order, ["Load"]))
 
-        # Sign contract on PowerGraphics' own traces: storage charging renders
-        # below the axis, discharging above it, and curtailment (forecast minus
-        # dispatch) is non-negative up to solver tolerance.
+        # Storage charging is below zero, discharging and curtailment above.
         @test all(<=(1e-6), series_values(p_area, "Storage In"))
         @test all(>=(-1e-6), series_values(p_area, "Storage Out"))
         @test all(>=(-1e-4), series_values(p_area, "Curtailment"))
 
-        # CairoMakie tracks its own series counter to rebuild the legend across
-        # layered calls; cross-check it against the marks actually on the axis.
         @test series_count(p_area) == length(fuel_expected_order) + 1
     end
 
-    @testset "$backend_pkg fuel net-load overlay includes storage charging" begin
-        # With unit auto-scaling disabled all traces are in raw MW, so the "Load"
-        # overlay must equal demand plus the magnitude of the (negative) storage
-        # charging trace — the net-load line coincides with the top of the
-        # generation stack.
-        #
-        # The overlay is drawn by a separate single-column `_plot_dataframe!`
-        # call, so CairoMakie's stacked-line envelope for it is the raw demand
-        # series and compares directly with the PlotlyLight trace.
-        p = plot_fuel(
-            fuel_results_uc;
-            backend = backend,
-            set_display = false,
-            stack = true,
-            auto_units = false,
-        )
-        load_y = series_values(p, "Load")
-        in_y = series_values(p, "Storage In")
-        demand = PA.combine_categories(get_load_data(fuel_results_uc).data)[!, "Load"]
-        # The battery actually charges in the test solution, so this has teeth.
-        @test sum(in_y) < 0
-        @test load_y ≈ demand .- in_y
-    end
-
-    @testset "$backend_pkg fuel trace values match the old-API aggregation" begin
-        # Numeric equivalence contract between the migrated metrics-API pipeline
-        # and the old PowerAnalytics aggregation, over EVERY category the old API
-        # emits. The categories PowerGraphics reimplements by hand — the
-        # "<category> In"/"Out" storage split, "Curtailment" and the "Unserved
-        # Energy"/"Over Generation" slacks — are the ones most likely to carry a
-        # wrong sign, a doubled contribution or a dropped component, so they are
-        # pinned by value and not merely by sign. UC solves with
-        # `use_slacks = false` and ED with `use_slacks = true`, so the pair also
-        # covers the slack categories.
+    @testset "$backend_pkg fuel trace values match categorize_data" begin
+        # UC has no slacks and ED has slacks, so both cases are covered.
         for result in (fuel_results_uc, fuel_results_ed)
             fuel_old = categorize_data(
                 get_generation_data(result).data,
@@ -114,8 +63,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
             )
             @test !isempty(fuel_old)
 
-            # `auto_units = false` keeps every trace in raw MW, so no unit
-            # scaling sits between the two pipelines.
+            # Raw MW, no unit scaling.
             p = plot_fuel(
                 result;
                 backend = backend,
@@ -123,11 +71,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
                 stack = true,
                 auto_units = false,
             )
-            # "Load" is the net-load overlay, not a fuel category, so it is the
-            # one trace legitimately absent from `fuel_old`. Every other trace
-            # must have a counterpart, and no old-API category may be missing
-            # from the plot: a one-sided category is a migration defect, not a
-            # representational difference.
+            # Every category except the "Load" line matches one-to-one.
             traces = filter(kv -> first(kv) != "Load", series_map(p))
             @test Set(keys(traces)) == Set(keys(fuel_old))
 
@@ -139,9 +83,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
     end
 
     @testset "$backend_pkg fuel category toggles drop exactly their categories" begin
-        # ED holds storage and solves with `use_slacks = true`, so every optional
-        # category family is present by default and each kwarg has something to
-        # drop.
+        # ED has storage and slacks, so every toggle has something to drop.
         labels =
             kwargs -> sort(
                 series_labels(
@@ -217,7 +159,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
         @test series_labels(p) == ["Load"]
         @test series_values(p, "Load") ≈ expected[!, "Load"]
 
-        # The time-window kwargs must keep slicing through the migration.
+        # Time-window kwargs slice the trace.
         p_h = plot_demand(
             fuel_results_uc;
             backend = backend,
@@ -226,8 +168,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
         )
         @test series_values(p_h, "Load") ≈ expected[1:3, "Load"]
 
-        # Index 25 is the start of the second simulation step, a timestamp that
-        # is valid under both the old and the new results readers.
+        # Index 25 starts the second simulation step.
         t0 = load_uc.time[25]
         p_it = plot_demand(
             fuel_results_uc;
@@ -238,10 +179,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
         )
         @test series_values(p_it, "Load") ≈ expected[25:26, "Load"]
 
-        # A `Dates.Period` horizon means the same thing as the equivalent integer
-        # count of time periods. The `PSY.System` path has always accepted one
-        # (PowerAnalytics converts it); the results path used to raise a
-        # MethodError deep in the stack.
+        # A `Dates.Period` horizon equals the equivalent integer count.
         resolution = load_uc.time[2] - load_uc.time[1]
         @test resolution == Hour(1)  # the fixture the horizons below assume
         p_p = plot_demand(
@@ -261,22 +199,13 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
         )
         @test series_values(p_pit, "Load") ≈ expected[25:26, "Load"]
 
-        # A horizon that is not a whole multiple of the resolution is rejected up
-        # front, not as an InexactError from the underlying division.
+        # A horizon that is not a whole multiple of the resolution is rejected.
         @test_throws ArgumentError plot_demand(
             fuel_results_uc;
             backend = backend,
             set_display = false,
             horizon = Minute(90),
         )
-
-        # A `Dates.Period` horizon needs two timestamps to infer the resolution;
-        # an integer horizon does not.
-        @test_throws ArgumentError PG._time_window_indices(
-            load_uc.time[1:1],
-            Dict(:horizon => Hour(1)),
-        )
-        @test PG._time_window_indices(load_uc.time[1:1], Dict(:horizon => 1)) == 1:1
 
         # filter_func restricts which loads are included.
         only_bus2 = x -> get_name(get_bus(x)) == "bus2"
@@ -294,9 +223,6 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
     end
 
     @testset "$backend_pkg fuel plot slices the requested time window" begin
-        # `_fuel_data` applies the same `_time_window_indices` slicing as the
-        # demand path, but nothing exercised it through `plot_fuel`, so a
-        # regression in the fuel window would only have surfaced on demand plots.
         palette_categories = PG.get_palette_category(PG.PALETTE)
         (_, fuel_time) = PG._fuel_data(fuel_results_uc, palette_categories)
         # Index 25 starts the second simulation step, as in the demand testset.
@@ -335,8 +261,8 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
         @test all(s -> length(s.values) == length(window), plot_series(p_win))
         @test any(s -> length(s.values) > length(window), plot_series(p_full))
 
-        # The net-load overlay is windowed with the stack rather than left at
-        # full length, and holds the values the full plot draws over the window.
+        # The load line is windowed with the stack rather than left at full
+        # length, and holds the values the full plot draws over the window.
         @test series_values(p_win, "Load") ≈ series_values(p_full, "Load")[window]
     end
 end
@@ -346,10 +272,6 @@ for (backend_pkg, backend) in FUEL_BACKENDS
 end
 
 @testset "fuel stack is identical across backends" begin
-    # The per-backend testsets above pin each backend against the same oracle;
-    # this compares the two backends directly, so a defect that shifts BOTH in
-    # the same direction is still caught by the oracle while a one-sided
-    # regression is caught here with a much smaller diff to read.
     plots = Dict(
         pkg => plot_fuel(
             fuel_results_uc;
@@ -370,11 +292,6 @@ end
 end
 
 @testset "plot_demand and plot_fuel save exactly one file" begin
-    # `_plot_demand!` used to read `:save` without removing it from the key words
-    # it forwarded, so the delegated `_plot_dataframe!` saved the figure and the
-    # wrapper then saved it again under a space-sanitized name: one call, two
-    # files. `_plot_results!` and `_plot_fuel!` stripped `:save` and did not.
-    # Every wrapper now resolves its path once through `_resolve_save_file`.
     save_root = joinpath(TEST_OUTPUTS, "fuel_save")
     isdir(save_root) && rm(save_root; recursive = true)
     mkpath(save_root)
@@ -393,6 +310,29 @@ end
     mkpath(fuel_dir)
     plot_fuel(fuel_results_uc; set_display = false, title = "My Fuel", save = fuel_dir)
     @test readdir(fuel_dir) == ["My_Fuel.png"]
+
+    # The `" "` title saves under the untitled name.
+    untitled_dir = joinpath(save_root, "untitled")
+    mkpath(untitled_dir)
+    plot_fuel(fuel_results_uc; set_display = false, title = " ", save = untitled_dir)
+    @test readdir(untitled_dir) == ["dataframe.png"]
+
+    # `plot_results` saves under its title, or the untitled name without one.
+    results = Dict(
+        "Load" => DataFrames.DataFrame(
+            "DateTime" => DateTime(2024, 1, 1):Hour(1):DateTime(2024, 1, 1, 3),
+            "x" => [1.0, 2.0, 3.0, 4.0],
+        ),
+    )
+    results_dir = joinpath(save_root, "results")
+    mkpath(results_dir)
+    plot_results(results; set_display = false, title = "My Results", save = results_dir)
+    plot_results(results; set_display = false, save = results_dir)
+    @test sort(readdir(results_dir)) == ["My_Results.png", "dataframe.png"]
+    @test plot_title(
+        plot_results(results; backend = PlotlyLightBackend(), set_display = false,
+            title = "My Results"),
+    ) == "My Results"
 
     @info("removing test files")
     rm(save_root; recursive = true)

@@ -1,12 +1,7 @@
 # BEGIN 0.23.0 deprecations
 
-# Shared by every deprecated `_plotly`-suffixed shim. The backend is a value —
-# `src/backends.jl` already models it as one — so encoding it in the function
-# name doubled the public API without buying any dispatch; the `_plotly` names
-# now forward to the un-suffixed function with `backend = PlotlyLightBackend()`.
-# A caller-supplied `backend` is rejected instead of silently overridden,
-# because the name and the key word would then disagree about which backend to
-# use, and a shim that ignored the key word would be the worse surprise.
+# Shared by the deprecated `_plotly` shims: warns and returns `PlotlyLightBackend()`.
+# A `backend` key word is rejected since the name already fixes the backend.
 function _plotly_suffix_backend(old::String, new::String, kwargs)
     haskey(kwargs, :backend) && throw(
         ArgumentError(
@@ -21,16 +16,13 @@ function _plotly_suffix_backend(old::String, new::String, kwargs)
 end
 
 function _warn_plot_powerdata_deprecated(name::String, replacement::String)
-    @warn "$name(::PowerAnalytics.PowerData) is deprecated because PowerAnalytics' " *
-          "PowerData predates its 1.0 metrics API; use $replacement with a " *
+    @warn "$name(::PowerAnalytics.PowerData) is deprecated; use $replacement with a " *
           "`Dict{String, DataFrame}` (or `plot_dataframe` for a single DataFrame) " *
           "instead. This method will be removed in a future breaking release."
     return
 end
 
-# Forward a `PA.PowerData` to the dict-of-DataFrames shape the `plot_results`
-# pipeline consumes: keys become strings and any `DateTime` columns are
-# stripped, while the time axis comes from `powerdata.time`.
+# Convert `PA.PowerData` to the `plot_results` input shape.
 function _powerdata_to_results(powerdata::PA.PowerData)
     return Dict{String, DataFrames.DataFrame}(
         string(k) => PA.no_datetime(v) for (k, v) in powerdata.data
@@ -41,10 +33,8 @@ end
     plot_powerdata(powerdata)
 
 !!! warning "Deprecated"
-    This method is deprecated because `PowerAnalytics.PowerData` predates the
-    PowerAnalytics 1.0 metrics API. Use [`plot_results`](@ref) with a
-    `Dict{String, DataFrame}` (or [`plot_dataframe`](@ref) for a single
-    `DataFrame`) instead. It will be removed in a future breaking release.
+    Deprecated. Use [`plot_results`](@ref) with a `Dict{String, DataFrame}` (or
+    [`plot_dataframe`](@ref) for a single `DataFrame`) instead.
 
 Makes a plot from a `PowerAnalytics.PowerData` object by forwarding its `data`
 and `time` fields to the [`plot_results`](@ref) pipeline; accepts the same key
@@ -72,10 +62,8 @@ end
     plot_powerdata!(plot, powerdata)
 
 !!! warning "Deprecated"
-    This method is deprecated because `PowerAnalytics.PowerData` predates the
-    PowerAnalytics 1.0 metrics API. Use [`plot_results!`](@ref) with a
-    `Dict{String, DataFrame}` (or [`plot_dataframe!`](@ref) for a single
-    `DataFrame`) instead. It will be removed in a future breaking release.
+    Deprecated. Use [`plot_results!`](@ref) with a `Dict{String, DataFrame}` (or
+    [`plot_dataframe!`](@ref) for a single `DataFrame`) instead.
 
 Makes a plot from a `PowerAnalytics.PowerData` object onto an existing plot
 handle by forwarding its `data` and `time` fields to the [`plot_results!`](@ref)
@@ -214,12 +202,8 @@ end
     plot_powerdata_plotly!(plot, powerdata)
 
 !!! warning "Deprecated"
-    Deprecated twice over: `PowerAnalytics.PowerData` predates the
-    PowerAnalytics 1.0 metrics API, and the `_plotly` suffix has been replaced
-    by the `backend` key word. Use [`plot_results`](@ref) /
-    [`plot_results!`](@ref) with a `Dict{String, DataFrame}` and
-    `backend = PlotlyLightBackend()` instead. These names will be removed in a
-    future breaking release.
+    Deprecated. Use [`plot_results`](@ref) / [`plot_results!`](@ref) with a
+    `Dict{String, DataFrame}` and `backend = PlotlyLightBackend()` instead.
 """
 function plot_powerdata_plotly(powerdata::PA.PowerData; kwargs...)
     backend = _plotly_suffix_backend("plot_powerdata_plotly", "plot_powerdata", kwargs)

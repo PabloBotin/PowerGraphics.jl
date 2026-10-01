@@ -2,9 +2,8 @@
 # Supports CairoMakie (default) and PlotlyLight (optional)
 
 """
-Supertype of the plotting backends. A backend is a *value*, not a function name:
-every `plot_*` function takes it as a `backend` key word and selects the drawing
-code by dispatch on the concrete subtype.
+Supertype of the plotting backends, passed to every `plot_*` function as the
+`backend` key word.
 
 Subtypes: [`CairoMakieBackend`](@ref), [`PlotlyLightBackend`](@ref).
 """
@@ -24,7 +23,6 @@ lightweight interactive plots saved as `html`. Pass it as
 """
 struct PlotlyLightBackend <: PlottingBackend end
 
-# File extension used when the caller does not pass `format`; an explicit user
-# `format` still wins. See the Backend Parity Contract for why it is dispatched.
+# Default file extension when `format` is not passed.
 _default_save_format(::CairoMakieBackend) = "png"
 _default_save_format(::PlotlyLightBackend) = "html"

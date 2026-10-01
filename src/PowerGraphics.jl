@@ -7,15 +7,12 @@ export plot_demand, plot_demand!
 export plot_dataframe, plot_dataframe!
 export plot_results, plot_results!
 export plot_fuel, plot_fuel!
-export get_demand_data
 export report
 export save_plot
 export label_component, label_variable, label_acronym, label_first_word
 export label_short, label_truncate
 
-# Deprecated exports — kept so existing user code keeps working. The `_plotly`
-# suffix has been replaced by the `backend` key word, and the `plot_powerdata`
-# family by `plot_results`/`plot_dataframe`; see `src/deprecated.jl`.
+# Deprecated exports; see src/deprecated.jl
 export plot_powerdata, plot_powerdata!
 export plot_demand_plotly, plot_demand_plotly!
 export plot_dataframe_plotly, plot_dataframe_plotly!
@@ -53,11 +50,6 @@ include("deprecated.jl")
 #   - `report(results, out_path, template; kwargs...)` — WeaveExt
 function report end
 
-# Each stub names the package that its own backend needs, because `backend`
-# defaults to `CairoMakieBackend()`: a user who loaded only PlotlyLight reaches
-# the CairoMakie stub without having asked for CairoMakie, so a message naming
-# both packages would point at the wrong remedy. The default backend's message
-# also names the key word that selects the other one.
 function _no_backend_loaded(::CairoMakieBackend)
     throw(
         ArgumentError(
@@ -79,9 +71,7 @@ end
 
 _empty_plot(backend::PlottingBackend) = _no_backend_loaded(backend)
 
-# How many series a plot handle already carries, so that `_PlotOptions` can
-# continue the color cycle instead of restarting it on a `!` call. Each backend
-# answers from its own plot object.
+# Number of series already on the plot, so `!` calls continue the color cycle.
 _drawn_series_count(::Any, backend::PlottingBackend) = _no_backend_loaded(backend)
 
 function _dataframe_plots_internal(

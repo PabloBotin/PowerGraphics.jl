@@ -180,8 +180,7 @@ function test_plots(file_path::String; backend_pkg::String = "cairomakie")
         out_path = joinpath(file_path, backend_pkg * "_powerdata_plots")
         !isdir(out_path) && mkdir(out_path)
 
-        # The `PA.PowerData` methods are deprecated shims: they must warn and
-        # forward to the `plot_results` pipeline.
+        # Deprecated `PowerData` methods warn and still plot.
         @test_logs (:warn, r"deprecated") match_mode = :any plot_powerdata_fn(
             gen_uc;
             set_display = set_display,

@@ -1,15 +1,6 @@
-# Regression tests for the demand data contract on `IS.Results`.
-#
-# PowerGraphics reads load variable-first (`calc_active_power`, falling back to
-# `calc_load_forecast`), which is what the old `PA.get_load_data` did. The
-# fixtures below exist because that order is only observable when a load is
-# modeled with a controllable formulation: under `PowerLoadInterruption` the
-# `ActivePowerVariable` is the *served* load, while PowerSimulations stores the
-# `ActivePowerTimeSeriesParameter` with the opposite sign than it does under
-# `StaticPowerLoad`. Reading the forecast alone therefore plots the wrong
-# quantity and the wrong sign, and on a mixed static/controllable system the two
-# sign conventions cancel — which is what these tests pin down. The rest of the
-# suite runs on an all-static fixture where both readings coincide.
+# Demand on `IS.Results` with controllable (`PowerLoadInterruption`) loads, where
+# the served load differs from the forecast and the forecast parameter has the
+# opposite sign to `StaticPowerLoad`.
 
 # `n_interruptible` of the three 5-bus loads are rebuilt as
 # `InterruptiblePowerLoad`; `capacity_scale` throttles thermal capacity so that
@@ -61,9 +52,8 @@ function solve_interruptible_load_problem(sys)
     return OptimizationProblemResults(prob)
 end
 
-# Total demand per timestep the way the old PowerAnalytics pipeline reported it.
-# Categories emptied out by a `filter_func` are skipped: upstream
-# `PA.combine_categories` throws a `MethodError` on those.
+# Reference total demand per timestep from `PA.get_load_data`, skipping empty
+# categories.
 function old_api_demand(res; filter_func = nothing)
     data = if isnothing(filter_func)
         get_load_data(res)
@@ -84,9 +74,6 @@ function old_api_demand(res; filter_func = nothing)
     return total
 end
 
-# Read through the backend-agnostic harness in `plot_introspection.jl` rather
-# than off `PlotlyLight.Plot.data`: a value assertion written against one
-# backend's object model is exactly what lets a regression survive in the other.
 demand_trace(p) = series_values(p, "Load")
 
 # The `PSY.System` path aggregates per load rather than into a single "Load"
@@ -104,16 +91,13 @@ const DEMAND_MW_TOL = 1.0e-6
     p = plot_demand(res; backend = PG.PlotlyLightBackend(), set_display = false)
     plotted = demand_trace(p)
 
-    # Sign contract. Reading `calc_load_forecast` alone returns the static loads
-    # positive and the controllable loads negative, so the aggregate came out
-    # negative before the variable-first fallback existed.
+    # Demand is non-negative.
     @test all(>=(0.0), plotted)
 
-    # Magnitude contract against the old pipeline, per timestep.
+    # Matches `get_load_data` per timestep.
     @test plotted ≈ old_api_demand(res)
 
-    # The fixture has teeth only if the solver actually shed load, i.e. served
-    # demand is strictly below the forecast for at least one period.
+    # The solver sheds load in at least one period.
     forecast =
         -get_data_vec(
             PA.compute(
@@ -132,16 +116,14 @@ const DEMAND_MW_TOL = 1.0e-6
     @test all(served .<= forecast .+ DEMAND_MW_TOL)
     @test any(served .< forecast .- DEMAND_MW_TOL)
 
-    # A whole-pool `calc_active_power` read cannot express this: the static
-    # loads have no `ActivePowerVariable`, so the call throws and everything
-    # falls back to the forecast. This is why resolution is per load type.
+    # A whole-pool read throws because static loads have no `ActivePowerVariable`.
     @test_throws Exception PA.compute(
         PA.Metrics.calc_active_power,
         res,
         rebuild_selector(PA.Selectors.all_loads; groupby = :all),
     )
 
-    # `filter_func` still restricts the pool, and still matches the old reader.
+    # `filter_func` restricts the pool.
     only_bus2 = x -> get_name(x) == "Bus2"
     p_f = plot_demand(
         res;
@@ -153,7 +135,7 @@ const DEMAND_MW_TOL = 1.0e-6
     @test sum(demand_trace(p_f)) < sum(plotted)
 end
 
-@testset "net-load overlay tracks served load when load is shed" begin
+@testset "fuel plot demand line tracks served load when load is shed" begin
     res = solve_interruptible_load_problem(
         build_interruptible_load_system(; n_interruptible = 3, capacity_scale = 0.55),
     )
@@ -167,8 +149,7 @@ end
     @test all(>=(0.0), netload)
 
     # With a copper-plate network, no slacks and no storage, generation equals
-    # served load every period, so the net-load line must sit exactly on top of
-    # the generation stack. Curtailment is drawn above the line, not in it.
+    # served load, so the demand line sits on top of the generation stack.
     generation = zeros(Float64, length(netload))
     for s in plot_series(p)
         s.label in ("Load", "Curtailment") && continue
@@ -183,7 +164,7 @@ end
     t0 = initial_times[2]
     # The `Hour(3)` and `3` horizons below only mean the same thing on an hourly
     # axis, so pin the fixture's resolution rather than assume it.
-    axis = get_demand_data(sys)[!, PA.DATETIME_COL]
+    axis = last(PG._demand_data(sys))
     @test axis[2] - axis[1] == Hour(1)
 
     windowed = total_trace(
@@ -203,10 +184,7 @@ end
         ),
     ) > 3
 
-    # A `Dates.Period` horizon must select the same rows as the equivalent
-    # integer count on this path too, not merely on the `IS.Results` path: the
-    # conversion happens in a different place (PowerAnalytics, rather than
-    # `_horizon_steps`), so agreement between the two is a real contract.
+    # A `Dates.Period` horizon selects the same rows as the integer count.
     @test windowed ≈ total_trace(
         plot_demand(
             sys;
@@ -218,37 +196,44 @@ end
     )
 end
 
-@testset "get_demand_data returns the numbers plot_demand draws" begin
-    res = solve_interruptible_load_problem(
-        build_interruptible_load_system(; n_interruptible = 2, capacity_scale = 0.55),
-    )
-
-    df = get_demand_data(res)
-    @test names(df)[1] == PA.DATETIME_COL
-    @test eltype(df[!, PA.DATETIME_COL]) <: Dates.DateTime
-
-    # The reason this accessor is exported at all: it must agree with the plot,
-    # not merely be plausible. Anything less and callers would be better off
-    # reading a metric directly, which is the trap the sign fix exists to close.
-    p = plot_demand(res; backend = PG.PlotlyLightBackend(), set_display = false)
-    @test df[!, "Load"] ≈ series_values(p, "Load")
-
-    # `aggregate` is meaningful only on the `PSY.System` path. Accepting and
-    # ignoring it here would hand back a single aggregated column while implying
-    # a per-bus breakdown, so the `IS.Results` method must not take it at all.
-    @test_throws MethodError get_demand_data(res; aggregate = "Bus")
-end
-
-@testset "get_demand_data window key words slice" begin
+@testset "demand data window key words slice on the PSY.System path" begin
     sys = deepcopy(PSB.build_system(PSB.PSITestSystems, "c_sys5_uc"))
     t0 = collect(get_forecast_initial_times(sys))[2]
 
-    full = get_demand_data(sys)
-    windowed = get_demand_data(sys; initial_time = t0, horizon = 3)
+    (full, _) = PG._demand_data(sys)
+    (windowed, windowed_time) = PG._demand_data(sys; initial_time = t0, horizon = 3)
     @test DataFrames.nrow(windowed) == 3
+    @test length(windowed_time) == 3
     @test DataFrames.nrow(full) > 3
 
     # The `System` path groups columns, so `aggregate` has to reach the reader.
-    @test names(get_demand_data(sys; aggregate = "System")) !=
-          names(get_demand_data(sys; aggregate = "Bus"))
+    @test names(first(PG._demand_data(sys; aggregate = "System"))) !=
+          names(first(PG._demand_data(sys; aggregate = "Bus")))
+end
+
+# The fuel plot demand line is end-use load only, without storage charging.
+(storage_results_uc, _) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
+
+@testset "$backend_pkg fuel plot demand line is end-use load only" for (
+    backend_pkg,
+    backend,
+) in (
+    ("cairomakie", CairoMakieBackend()),
+    ("plotlylight", PlotlyLightBackend()),
+)
+    p = plot_fuel(
+        storage_results_uc;
+        backend = backend,
+        set_display = false,
+        stack = true,
+        auto_units = false,
+    )
+    # The battery charges in the test solution.
+    @test sum(series_values(p, "Storage In")) < 0
+    end_use = series_values(
+        plot_demand(storage_results_uc; backend = backend, set_display = false),
+        "Load",
+    )
+    @test series_values(p, "Load") ≈ end_use
+    @test end_use ≈ old_api_demand(storage_results_uc)
 end

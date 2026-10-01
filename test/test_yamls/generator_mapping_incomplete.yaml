@@ -1,6 +1,4 @@
-# A deliberately incomplete generator mapping: the hydro components of the
-# test system match no category, so `plot_fuel` must route them to "Other" and
-# log an error.
+# Incomplete mapping: hydro components match no category and go to "Other".
 PV:
   - {gentype: Any, primemover: PVe, fuel: null}
 Wind:
