@@ -1,67 +1,31 @@
 ---
-title : Weave example
+title : Simulation Report
 author : Sienna
-date : 1-14
 ---
 
-# Bar Plots
+# Generation by Fuel
 
 ```julia; echo = false
 using PowerGraphics
 using PowerAnalytics
-using PowerSystems
 
-plot_fuel(
-    WEAVE_ARGS["results"];
-    backend = WEAVE_ARGS["backend"],
-    bar = true,
-    stack = true,
-)
-```
-
-# Stack Plots
-
-```julia; echo = false
-plot_fuel(WEAVE_ARGS["results"]; backend = WEAVE_ARGS["backend"])
-```
-
-# Tables
-
-### Generation
-
-```julia; echo = false
-# Realized generation by fuel category, computed with the PowerAnalytics
-# metrics API. Categories with no components in the system are skipped, as are
-# categories whose components were not modeled with a dispatch variable (e.g.
-# `FixedOutput` formulations) and therefore have no stored result.
 results = WEAVE_ARGS["results"]
-for (category, selector) in pairs(PowerAnalytics.Selectors.generator_categories)
-    isempty(PowerSystems.get_components(selector, results)) && continue
-    df = try
-        compute(PowerAnalytics.Metrics.calc_active_power, results, selector)
-    catch e
-        e isa PowerAnalytics.NoResultError && continue
-        e isa PowerGraphics.IS.InvalidValue && continue
-        rethrow()
-    end
-    display(category)
-    display(df)
+backend = WEAVE_ARGS["backend"]
+
+plot_fuel(results; backend = backend)
+```
+
+# Reserves
+
+```julia; echo = false
+# One stacked trace per reserve product, keyed by the service name.
+reserves = Dict(
+    String(last(split(String(key), "__"))) => df for
+    (key, df) in PowerAnalytics.get_service_data(results).data
+)
+if isempty(reserves)
+    println("No reserve results in this simulation.")
+else
+    plot_results(reserves; backend = backend, stack = true, title = "Reserves", y_label = "MW")
 end
 ```
-
-### Load
-
-```julia; echo = false
-# `get_demand_data` is the public accessor behind `plot_demand`, so this table
-# and the demand plot always report the same quantity. Reading
-# `calc_load_forecast` (or `calc_system_load_forecast`) directly instead would
-# report the *requested* rather than the served demand, and with the opposite
-# sign for controllable load formulations — a private `_demand_data` call would
-# get the numbers right but would not survive being copied into user code.
-display(get_demand_data(WEAVE_ARGS["results"]))
-```
-
-<!-- The old Services table used `PowerAnalytics.get_service_data`, which has no
-equivalent in the PowerAnalytics 1.0 metrics API. A reserve metric can be built
-with `PowerAnalytics.make_component_metric_from_entry("Reserve",
-PowerSimulations.ActivePowerReserveVariable)` if needed. -->
