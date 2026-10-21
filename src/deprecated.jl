@@ -2,7 +2,7 @@
 
 # Shared by the deprecated `_plotly` shims: warns and returns `PlotlyLightBackend()`.
 # A `backend` key word is rejected since the name already fixes the backend.
-function _plotly_suffix_backend(old::String, new::String, kwargs)
+function _deprecated_plotly_backend(old::String, new::String, kwargs)
     haskey(kwargs, :backend) && throw(
         ArgumentError(
             "`$old` always renders with `PlotlyLightBackend()` and does not accept a " *
@@ -98,7 +98,7 @@ end
     be removed in a future breaking release.
 """
 function plot_demand_plotly(result::Union{IS.Results, PSY.System}; kwargs...)
-    backend = _plotly_suffix_backend("plot_demand_plotly", "plot_demand", kwargs)
+    backend = _deprecated_plotly_backend("plot_demand_plotly", "plot_demand", kwargs)
     return plot_demand(result; backend = backend, kwargs...)
 end
 
@@ -107,7 +107,7 @@ end
     result::Union{IS.Results, PSY.System};
     kwargs...,
 )
-    backend = _plotly_suffix_backend("plot_demand_plotly!", "plot_demand!", kwargs)
+    backend = _deprecated_plotly_backend("plot_demand_plotly!", "plot_demand!", kwargs)
     return plot_demand!(p, result; backend = backend, kwargs...)
 end
 
@@ -123,7 +123,7 @@ end
     be removed in a future breaking release.
 """
 function plot_dataframe_plotly(df::DataFrames.DataFrame; kwargs...)
-    backend = _plotly_suffix_backend("plot_dataframe_plotly", "plot_dataframe", kwargs)
+    backend = _deprecated_plotly_backend("plot_dataframe_plotly", "plot_dataframe", kwargs)
     return plot_dataframe(df; backend = backend, kwargs...)
 end
 
@@ -132,7 +132,7 @@ function plot_dataframe_plotly(
     time_range::Union{DataFrames.DataFrame, Array, StepRange};
     kwargs...,
 )
-    backend = _plotly_suffix_backend("plot_dataframe_plotly", "plot_dataframe", kwargs)
+    backend = _deprecated_plotly_backend("plot_dataframe_plotly", "plot_dataframe", kwargs)
     return plot_dataframe(df, time_range; backend = backend, kwargs...)
 end
 
@@ -141,7 +141,8 @@ end
     df::DataFrames.DataFrame;
     kwargs...,
 )
-    backend = _plotly_suffix_backend("plot_dataframe_plotly!", "plot_dataframe!", kwargs)
+    backend =
+        _deprecated_plotly_backend("plot_dataframe_plotly!", "plot_dataframe!", kwargs)
     return plot_dataframe!(p, df; backend = backend, kwargs...)
 end
 
@@ -151,7 +152,8 @@ function plot_dataframe_plotly!(
     time_range::Union{DataFrames.DataFrame, Array, StepRange};
     kwargs...,
 )
-    backend = _plotly_suffix_backend("plot_dataframe_plotly!", "plot_dataframe!", kwargs)
+    backend =
+        _deprecated_plotly_backend("plot_dataframe_plotly!", "plot_dataframe!", kwargs)
     return plot_dataframe!(p, variable, time_range; backend = backend, kwargs...)
 end
 
@@ -165,7 +167,7 @@ end
     be removed in a future breaking release.
 """
 function plot_results_plotly(results::Dict{String, DataFrames.DataFrame}; kwargs...)
-    backend = _plotly_suffix_backend("plot_results_plotly", "plot_results", kwargs)
+    backend = _deprecated_plotly_backend("plot_results_plotly", "plot_results", kwargs)
     return plot_results(results; backend = backend, kwargs...)
 end
 
@@ -174,7 +176,7 @@ end
     results::Dict{String, DataFrames.DataFrame};
     kwargs...,
 )
-    backend = _plotly_suffix_backend("plot_results_plotly!", "plot_results!", kwargs)
+    backend = _deprecated_plotly_backend("plot_results_plotly!", "plot_results!", kwargs)
     return plot_results!(p, results; backend = backend, kwargs...)
 end
 
@@ -188,12 +190,12 @@ end
     be removed in a future breaking release.
 """
 function plot_fuel_plotly(result::IS.Results; kwargs...)
-    backend = _plotly_suffix_backend("plot_fuel_plotly", "plot_fuel", kwargs)
+    backend = _deprecated_plotly_backend("plot_fuel_plotly", "plot_fuel", kwargs)
     return plot_fuel(result; backend = backend, kwargs...)
 end
 
 @doc (@doc plot_fuel_plotly) function plot_fuel_plotly!(p, result::IS.Results; kwargs...)
-    backend = _plotly_suffix_backend("plot_fuel_plotly!", "plot_fuel!", kwargs)
+    backend = _deprecated_plotly_backend("plot_fuel_plotly!", "plot_fuel!", kwargs)
     return plot_fuel!(p, result; backend = backend, kwargs...)
 end
 
@@ -206,7 +208,7 @@ end
     `Dict{String, DataFrame}` and `backend = PlotlyLightBackend()` instead.
 """
 function plot_powerdata_plotly(powerdata::PA.PowerData; kwargs...)
-    backend = _plotly_suffix_backend("plot_powerdata_plotly", "plot_powerdata", kwargs)
+    backend = _deprecated_plotly_backend("plot_powerdata_plotly", "plot_powerdata", kwargs)
     return plot_powerdata(powerdata; backend = backend, kwargs...)
 end
 
@@ -215,6 +217,7 @@ end
     powerdata::PA.PowerData;
     kwargs...,
 )
-    backend = _plotly_suffix_backend("plot_powerdata_plotly!", "plot_powerdata!", kwargs)
+    backend =
+        _deprecated_plotly_backend("plot_powerdata_plotly!", "plot_powerdata!", kwargs)
     return plot_powerdata!(p, powerdata; backend = backend, kwargs...)
 end

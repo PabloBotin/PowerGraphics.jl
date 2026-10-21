@@ -151,7 +151,7 @@ end
     # With a copper-plate network, no slacks and no storage, generation equals
     # served load, so the demand line sits on top of the generation stack.
     generation = zeros(Float64, length(netload))
-    for s in plot_series(p)
+    for s in get_plot_series(p)
         s.label in ("Load", "Curtailment") && continue
         generation .+= s.values
     end
@@ -217,10 +217,7 @@ end
 @testset "$backend_pkg fuel plot demand line is end-use load only" for (
     backend_pkg,
     backend,
-) in (
-    ("cairomakie", CairoMakieBackend()),
-    ("plotlylight", PlotlyLightBackend()),
-)
+) in TEST_BACKENDS
     p = plot_fuel(
         storage_results_uc;
         backend = backend,

@@ -1,8 +1,6 @@
 # Cross-backend parity tests: deprecated `_plotly` shims, save format, line
 # width, draw order, titles, empty input, and palette selection.
 
-const PARITY_BACKENDS =
-    (("cairomakie", CairoMakieBackend()), ("plotlylight", PlotlyLightBackend()))
 const PARITY_EXTENSION = Dict("cairomakie" => ".png", "plotlylight" => ".html")
 
 parity_time() = collect(range(DateTime("2024-01-01T00:00:00"); step = Hour(1), length = 6))
@@ -162,7 +160,7 @@ end
     isdir(out_path) && rm(out_path; recursive = true)
     mkpath(out_path)
 
-    for (backend_pkg, backend) in PARITY_BACKENDS
+    for (backend_pkg, backend) in TEST_BACKENDS
         dir = joinpath(out_path, backend_pkg)
         mkpath(dir)
         # No "only supports HTML" warning on the default path.
@@ -241,13 +239,13 @@ end
 @testset "linewidth is honored by both backends" begin
     df = parity_dataframe()
     time = parity_time()
-    for (_, backend) in PARITY_BACKENDS
+    for (_, backend) in TEST_BACKENDS
         p = plot_dataframe(df, time; backend = backend, set_display = false, linewidth = 7)
         @test series_linewidths(p) == [7.0, 7.0, 7.0]
     end
 
     # Default linewidth is 1.
-    for (_, backend) in PARITY_BACKENDS
+    for (_, backend) in TEST_BACKENDS
         p = plot_dataframe(df, time; backend = backend, set_display = false)
         @test series_linewidths(p) == [1.0, 1.0, 1.0]
     end
@@ -267,14 +265,14 @@ end
         (:stair => true,),
         (:stack => true, :stair => true),
     )
-        for (backend_pkg, backend) in PARITY_BACKENDS
+        for (backend_pkg, backend) in TEST_BACKENDS
             p = plot_dataframe(df, time; backend = backend, set_display = false, mode...)
             @test series_labels(p) == expected
         end
     end
 
     # Bar plots keep column order.
-    for (_, backend) in PARITY_BACKENDS
+    for (_, backend) in TEST_BACKENDS
         p = plot_dataframe(
             df,
             time;
@@ -294,7 +292,7 @@ end
     isdir(out_path) && rm(out_path; recursive = true)
     mkpath(out_path)
 
-    for (backend_pkg, backend) in PARITY_BACKENDS
+    for (backend_pkg, backend) in TEST_BACKENDS
         ext = PARITY_EXTENSION[backend_pkg]
         for (tag, title_kwargs) in (("omitted", ()), ("sentinel", (:title => " ",)))
             dir = joinpath(out_path, backend_pkg * "_" * tag)
@@ -307,7 +305,7 @@ end
                 save = dir,
                 title_kwargs...,
             )
-            @test isnothing(plot_title(p))
+            @test isnothing(get_plot_title(p))
             # An untitled plot still needs a deterministic file name.
             @test readdir(dir) == ["dataframe" * ext]
         end
@@ -323,7 +321,7 @@ end
             save = dir,
             title = "Real Title",
         )
-        @test plot_title(p) == "Real Title"
+        @test get_plot_title(p) == "Real Title"
         # File name replaces spaces with underscores.
         @test readdir(dir) == ["Real_Title" * ext]
     end
@@ -335,7 +333,7 @@ end
 @testset "an empty dataframe warns and leaves the plot untouched" begin
     df = parity_dataframe()
     time = parity_time()
-    for (_, backend) in PARITY_BACKENDS
+    for (_, backend) in TEST_BACKENDS
         p = plot_dataframe(df, time; backend = backend, set_display = false)
         before_labels = series_labels(p)
         before_values = series_ydata(p)
@@ -360,7 +358,7 @@ end
     time = parity_time()
     # Series `i` takes palette entry `i`.
     expected = [_canonical_color(c.color) for c in PG.PALETTE[1:DataFrames.ncol(df)]]
-    for (_, backend) in PARITY_BACKENDS
+    for (_, backend) in TEST_BACKENDS
         p = plot_dataframe(df, time; backend = backend, set_display = false)
         @test series_colors(p) == expected
     end
@@ -370,7 +368,7 @@ end
         "c$ix" => fill(Float64(ix), length(time)) for ix in 1:(length(PG.PALETTE) + 2)
     ],)
     wide_expected = [_canonical_color(c.color) for c in vcat(PG.PALETTE, PG.PALETTE[1:2])]
-    for (_, backend) in PARITY_BACKENDS
+    for (_, backend) in TEST_BACKENDS
         p = plot_dataframe(wide, time; backend = backend, set_display = false)
         @test series_colors(p) == wide_expected
     end

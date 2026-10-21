@@ -51,7 +51,7 @@ _canonical_color(::Any) = nothing
 ######################### PlotlyLight plot objects ###########################
 
 """
-    plot_series(plot)
+    get_plot_series(plot)
 
 The drawn series of `plot`, in draw order, as [`PlotSeries`](@ref).
 
@@ -71,7 +71,7 @@ objects are skipped, which drops the companion `band!` of a stacked stair plot.
   vector attributes, flattened here into one `PlotSeries` per bar to line up
   with PlotlyLight's one-trace-per-series output.
 """
-function plot_series(plot::PlotlyLight.Plot)
+function get_plot_series(plot::PlotlyLight.Plot)
     return [_plotly_series(trace) for trace in plot.data]
 end
 
@@ -100,7 +100,7 @@ end
 
 ########################## CairoMakie plot objects ###########################
 
-function plot_series(plot::CairoMakiePlot)
+function get_plot_series(plot::CairoMakiePlot)
     series = PlotSeries[]
     for mark in plot.axis.scene.plots
         append!(series, _makie_series(mark))
@@ -156,7 +156,7 @@ function _makie_series(mark::Makie.Band)
     isempty(labels) && return PlotSeries[]
     lower = _ycoords(mark[1][])
     upper = _ycoords(mark[2][])
-    # See `plot_series`: the stack baseline is whichever envelope sits nearer
+    # See `get_plot_series`: the stack baseline is whichever envelope sits nearer
     # zero, and a downward-stacked band is baselined on its upper envelope.
     values = if sum(abs, upper) < sum(abs, lower)
         lower .- upper
@@ -193,22 +193,22 @@ end
 Ordered legend labels of the drawn series — the backend's draw order, which is
 `_series_draw_order` (net-negative series first) for every non-bar plot.
 """
-series_labels(plot) = [s.label for s in plot_series(plot)]
+series_labels(plot) = [s.label for s in get_plot_series(plot)]
 
 """
     series_count(plot)
 
 Number of drawn series.
 """
-series_count(plot) = length(plot_series(plot))
+series_count(plot) = length(get_plot_series(plot))
 
 """
     series_ydata(plot)
 
-Y-values of the drawn series, in draw order. See [`plot_series`](@ref) for what
+Y-values of the drawn series, in draw order. See [`get_plot_series`](@ref) for what
 these mean per backend and mark.
 """
-series_ydata(plot) = [s.values for s in plot_series(plot)]
+series_ydata(plot) = [s.values for s in get_plot_series(plot)]
 
 """
     series_colors(plot)
@@ -217,14 +217,14 @@ Series colors as `(r, g, b)` byte triples in draw order, comparable across
 backends even though CairoMakie stores `Colors.RGBA` and PlotlyLight stores
 `"rgba(…)"` strings.
 """
-series_colors(plot) = [s.color for s in plot_series(plot)]
+series_colors(plot) = [s.color for s in get_plot_series(plot)]
 
 """
     series_linewidths(plot)
 
 Drawn line widths in draw order; `nothing` for bands and bars, which carry none.
 """
-series_linewidths(plot) = [s.linewidth for s in plot_series(plot)]
+series_linewidths(plot) = [s.linewidth for s in get_plot_series(plot)]
 
 """
     series_map(plot)
@@ -233,7 +233,7 @@ series_linewidths(plot) = [s.linewidth for s in plot_series(plot)]
 """
 function series_map(plot)
     out = Dict{String, Vector{Float64}}()
-    for s in plot_series(plot)
+    for s in get_plot_series(plot)
         haskey(out, s.label) &&
             error("duplicate series label $(repr(s.label)) in plot introspection")
         out[s.label] = s.values
@@ -247,7 +247,7 @@ end
 Y-values of the single series drawn with `label`.
 """
 function series_values(plot, label::AbstractString)
-    matches = [s for s in plot_series(plot) if s.label == label]
+    matches = [s for s in get_plot_series(plot) if s.label == label]
     length(matches) == 1 || error(
         "expected exactly one series labeled $(repr(label)), found $(length(matches))",
     )
@@ -255,18 +255,18 @@ function series_values(plot, label::AbstractString)
 end
 
 """
-    plot_title(plot)
+    get_plot_title(plot)
 
 The visible plot title, or `nothing` when the plot carries none. CairoMakie
 leaves `Axis.title` as `""` when unset and PlotlyLight omits `layout.title`
 entirely; both are reported as `nothing`.
 """
-function plot_title(plot::CairoMakiePlot)
+function get_plot_title(plot::CairoMakiePlot)
     title = plot.axis.title[]
     return isempty(title) ? nothing : String(title)
 end
 
-function plot_title(plot::PlotlyLight.Plot)
+function get_plot_title(plot::PlotlyLight.Plot)
     haskey(plot.layout, :title) || return nothing
     haskey(plot.layout.title, :text) || return nothing
     return String(plot.layout.title.text)

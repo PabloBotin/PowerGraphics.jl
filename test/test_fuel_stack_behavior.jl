@@ -1,9 +1,6 @@
 # Fuel-stack and demand values on both backends, checked against PowerAnalytics'
 # `get_generation_data`/`categorize_data` aggregation.
 
-const FUEL_BACKENDS =
-    (("cairomakie", CairoMakieBackend()), ("plotlylight", PlotlyLightBackend()))
-
 # `run_test_sim` deserializes the shared simulation store, so it is read once for
 # the whole file rather than per testset.
 (fuel_results_uc, fuel_results_ed) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
@@ -26,7 +23,7 @@ fuel_expected_order =
 end
 
 function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
-    @testset "pin $backend_pkg fuel stack behavior on simulation results" begin
+    @testset "$backend_pkg fuel stack on simulation results" begin
         # Bar mode preserves trace order on both backends: PlotlyLight emits one
         # trace per category and CairoMakie one vector-labeled `barplot!` that
         # the introspection helper flattens back into per-category series.
@@ -146,7 +143,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
               sum(series_values(p_def, "Hydropower"))
     end
 
-    @testset "pin $backend_pkg demand plot behavior on simulation results" begin
+    @testset "$backend_pkg demand plot on simulation results" begin
         load_uc = get_load_data(fuel_results_uc)
         expected = PA.combine_categories(load_uc.data)
 
@@ -258,8 +255,8 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
         # Empty categories are dropped before windowing, so the trace set is
         # unchanged; only the number of points may differ.
         @test sort(series_labels(p_win)) == sort(series_labels(p_full))
-        @test all(s -> length(s.values) == length(window), plot_series(p_win))
-        @test any(s -> length(s.values) > length(window), plot_series(p_full))
+        @test all(s -> length(s.values) == length(window), get_plot_series(p_win))
+        @test any(s -> length(s.values) > length(window), get_plot_series(p_full))
 
         # The load line is windowed with the stack rather than left at full
         # length, and holds the values the full plot draws over the window.
@@ -267,7 +264,7 @@ function test_fuel_stack(backend_pkg::String, backend::PG.PlottingBackend)
     end
 end
 
-for (backend_pkg, backend) in FUEL_BACKENDS
+for (backend_pkg, backend) in TEST_BACKENDS
     test_fuel_stack(backend_pkg, backend)
 end
 
@@ -279,7 +276,7 @@ end
             set_display = false,
             stack = true,
             auto_units = false,
-        ) for (pkg, backend) in FUEL_BACKENDS
+        ) for (pkg, backend) in TEST_BACKENDS
     )
     cm = plots["cairomakie"]
     pl = plots["plotlylight"]
@@ -329,7 +326,7 @@ end
     plot_results(results; set_display = false, title = "My Results", save = results_dir)
     plot_results(results; set_display = false, save = results_dir)
     @test sort(readdir(results_dir)) == ["My_Results.png", "dataframe.png"]
-    @test plot_title(
+    @test get_plot_title(
         plot_results(results; backend = PlotlyLightBackend(), set_display = false,
             title = "My Results"),
     ) == "My Results"

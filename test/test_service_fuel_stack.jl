@@ -1,9 +1,6 @@
 # Reserve-provision stacks by fuel (`plot_fuel(...; service = ...)`) on both
 # backends, checked against the raw `ActivePowerReserveVariable` results.
 
-const SERVICE_BACKENDS =
-    (("cairomakie", CairoMakieBackend()), ("plotlylight", PlotlyLightBackend()))
-
 (service_results_uc, service_results_ed) = run_test_sim(TEST_RESULT_DIR, TEST_SIM_NAME)
 service_sys = PSI.get_system(service_results_uc)
 reg1 = get_component(VariableReserve{ReserveUp}, service_sys, "REG1")
@@ -37,9 +34,9 @@ service_plot(backend; kwargs...) = plot_fuel(
 @testset "$backend_pkg service stack matches the reserve results" for (
     backend_pkg,
     backend,
-) in SERVICE_BACKENDS
+) in TEST_BACKENDS
     p = service_plot(backend; service = "REG1")
-    @test plot_title(p) == "REG1"
+    @test get_plot_title(p) == "REG1"
     @test !("Load" in series_labels(p))
     # The service object and its name select the same stack, including a
     # service taken from another copy of the system.
@@ -116,7 +113,7 @@ end
 
 @testset "service stack is identical across backends" begin
     plots = Dict(
-        pkg => service_plot(backend; service = reg1) for (pkg, backend) in SERVICE_BACKENDS
+        pkg => service_plot(backend; service = reg1) for (pkg, backend) in TEST_BACKENDS
     )
     cm = plots["cairomakie"]
     pl = plots["plotlylight"]

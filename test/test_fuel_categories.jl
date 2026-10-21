@@ -56,8 +56,7 @@ end
 end
 
 @testset "specificity mapping drives plot_fuel end to end" begin
-    for (backend_pkg, backend) in
-        (("cairomakie", CairoMakieBackend()), ("plotlylight", PlotlyLightBackend()))
+    for (backend_pkg, backend) in TEST_BACKENDS
         p = plot_fuel(
             fuelcat_results_uc;
             backend = backend,
