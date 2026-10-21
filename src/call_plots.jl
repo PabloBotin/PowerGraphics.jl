@@ -8,13 +8,14 @@ const _COMMON_PLOT_KWARGS = """
 - `save::String`: directory to save the plot in, as `<title>.<format>` (`dataframe.<format>` when untitled)
 - `format::String`: file extension for saved plots; defaults to `"png"` for the CairoMakie backend and `"html"` for the PlotlyLight backend. CairoMakie supports `"png"`, `"pdf"`, `"svg"`; PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
 - `seriescolor::Array`: Set different colors for the plots
-- `stack::Bool = true`: stack plot traces
+- `stack::Bool = false`: stack plot traces; `true` by default for `plot_fuel`
 - `bar::Bool` : create bar plot
 - `nofill::Bool = !bar && !stack`: draw traces without an area fill
 - `stair::Bool`: Make a stair plot instead of a stack plot
-- `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`. Note that when `combine_categories = true` (the default for `plot_results`; `plot_fuel` always aggregates), columns are aggregated to category names *before* `label_fn` runs — those names don't contain `__`, so the default `label_short` is a no-op. Pass `combine_categories = false` to see the effect of `label_fn` on the raw labels.
+- `label_fn::Function = label_short`: function applied to legend labels (typically the raw `Variable__Component` strings produced by PowerAnalytics). Built-in options: `label_short`, `label_component`, `label_variable`, `label_acronym`, `label_first_word`, `label_truncate(n)`.
 - `legend_position::Symbol = :right`: legend placement, `:right` or `:bottom`
-- `legend_font_size::Number`: override the legend label font size"""
+- `legend_font_size::Number`: override the legend label font size
+- `palette`: color palette from [`load_palette`](@ref)"""
 
 const _BACKEND_KWARG = """
 - `backend::PlottingBackend = CairoMakieBackend()`: plotting backend, `CairoMakieBackend()` (static png/pdf/svg) or `PlotlyLightBackend()` (interactive html). The matching backend package must be loaded with `using`."""
@@ -353,11 +354,6 @@ const _DEMAND_COLUMN = "Load"
 # parameter is stored with the opposite sign, so the order matters.
 const _DEMAND_METRICS = (PA.Metrics.calc_active_power, PA.Metrics.calc_load_forecast)
 
-# Selector for the loads to plot, optionally filtered.
-_demand_selector(::Nothing) = PSY.rebuild_selector(PA.Selectors.all_loads; groupby = :all)
-_demand_selector(filter_func::Function) =
-    PSY.make_selector(filter_func, PSY.ElectricLoad; groupby = :all)
-
 # Per-load-type selector: `PA.compute` throws if any component in a selector
 # lacks the result, so the metric fallback is resolved per type.
 _demand_type_selector(::Nothing, load_type::Type{<:PSY.ElectricLoad}) =
@@ -385,7 +381,7 @@ function _demand_data(result::IS.Results; kwargs...)
     time = Dates.DateTime[]
     total = Float64[]
     # Sorted so the summation order is deterministic.
-    pool = PSY.get_components(_demand_selector(filter_func), result)
+    pool = PSY.get_components(_demand_type_selector(filter_func, PSY.ElectricLoad), result)
     for load_type in sort!(unique(typeof(c) for c in pool); by = nameof)
         selector = _demand_type_selector(filter_func, load_type)
         for metric in _DEMAND_METRICS
@@ -486,14 +482,10 @@ or extends `plot`; pass the `backend` key word to pick the renderer.
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
 - `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results, or of the system `Deterministic` time series
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
-- `aggregate::String = "System", "PowerLoad", or "Bus"`: aggregate the demand by
-    [`PowerSystems.System`](@extref), [`PowerSystems.PowerLoad`](@extref), or [`PowerSystems.Bus`](@extref),
-    rather than by generator. Applies ONLY to the `PSY.System` input; the `IS.Results` path
-    always aggregates to a single "Load" trace and ignores `aggregate` entirely.
+- `aggregate::String = "System", "PowerLoad", or "Bus"`: aggregate the demand other than by generator. Applies ONLY to the `PSY.System` input; the `IS.Results` path always aggregates to a single "Load" trace and ignores `aggregate` entirely.
 $(_COMMON_PLOT_KWARGS)
 - `title::String = "Demand"`: plot title
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
-- `palette` : color palette from [`load_palette`](@ref)
 $(_BACKEND_KWARG)
 """
 function plot_demand!(
@@ -530,7 +522,6 @@ plot = plot_dataframe(df, time_range)
 ```
 
 # Accepted Key Words
-- `curtailment::Bool`: plot the curtailment with the variable
 - `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
 - `title::String`: plot title; none by default
@@ -615,7 +606,6 @@ If only the `DataFrame` is provided, it must have a column of `DateTime` values.
 - `time_range::Union{DataFrames.DataFrame, Array, StepRange}`: The time periods of the data
 
 # Accepted Key Words
-- `curtailment::Bool`: plot the curtailment with the variable
 - `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
 - `title::String`: plot title; none by default
@@ -668,8 +658,7 @@ function _combine_result_categories(
 end
 
 # Flatten without aggregation: one trace per stored column, labeled
-# "<entry>__<column>" so the default `label_short` legend labels reduce to the
-# column (usually component) names and collisions across entries are impossible.
+# "<entry>__<column>" so labels are unique across entries.
 function _flatten_result_categories(data::Dict{String, DataFrames.DataFrame})
     cols = Pair{String, Any}[]
     for k in sort!(collect(keys(data)))
@@ -824,7 +813,7 @@ function plot_fuel(
     return plot_fuel!(_empty_plot(backend), result; backend = backend, kwargs...)
 end
 
-# Positional form called from report templates.
+# Positional form kept for report templates from earlier releases.
 _report_plot_fuel(backend::PlottingBackend, result; kwargs...) =
     plot_fuel(result; backend = backend, kwargs...)
 
@@ -834,9 +823,9 @@ _report_plot_fuel(backend::PlottingBackend, result; kwargs...) =
 # Generator fallback chain: active power variable, then forecast parameter, then
 # `PowerOutput` aux variable. Only the first available metric contributes.
 const _GENERATION_METRICS = (
-    (PA.Metrics.calc_active_power, 1.0),
-    (PA.Metrics.calc_active_power_forecast, 1.0),
-    (PA.Metrics.calc_power_output, 1.0),
+    PA.Metrics.calc_active_power,
+    PA.Metrics.calc_active_power_forecast,
+    PA.Metrics.calc_power_output,
 )
 # Storage and sources split into "<category> In"/"<category> Out" columns.
 # `ActivePowerInVariable` is negated so charging stacks below zero; the source
@@ -937,11 +926,10 @@ function _accumulate_component!(
     result::IS.Results,
     comp::PSY.Generator,
 )
-    for (metric, sign) in _GENERATION_METRICS
+    for metric in _GENERATION_METRICS
         r = _try_component_metric(metric, result, comp, acc.window)
         isnothing(r) && continue
         time, vals = r
-        isone(sign) || (vals .*= sign)
         _add_fuel_values!(acc, category, time, vals)
         return acc
     end
@@ -1320,7 +1308,6 @@ renderer.
 $(_COMMON_PLOT_KWARGS)
 - `title::String = "Fuel"`: plot title; defaults to the service name when `service` is set
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
-- `palette` : Color palette as from [`load_palette`](@ref).
 $(_BACKEND_KWARG)
 """
 function plot_fuel!(
@@ -1355,9 +1342,7 @@ save_plot(plot, "my_plot.html")               # PlotlyLight
 ```
 
 # Accepted Key Words (PlotlyLight backend only; CairoMakie ignores them)
-- `width::Union{Nothing,Int}=nothing`
-- `height::Union{Nothing,Int}=nothing`
-- `scale::Union{Nothing,Real}=nothing`
+- `autoplay`, `post_script`, `full_html`, `animation_opts`, `default_width`, `default_height`: passed to the HTML writer
 """
 # The 2-arg `save_plot(plot, filename)` form is defined per-backend via type
 # dispatch — see `ext/plot_recipes.jl` (CairoMakie) and `ext/plotly_recipes.jl`

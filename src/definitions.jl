@@ -85,11 +85,9 @@ function get_palette_seriescolor(backend::PlotlyLightBackend, palette)
     return get_palette_plotly(palette)
 end
 
-# Map each fuel-category column of `data` to a palette color, falling back to
-# the cycled `fallback_colors` for categories absent from the palette. Backend
-# selection only differs in which palette accessors supply the two color
-# vectors, so the matching loop is shared.
-function _match_fuel_colors(names, palette, color_range, fallback_colors)
+# Map each fuel-category name to its palette color, cycling through
+# `color_range` for categories absent from the palette.
+function _match_fuel_colors(names, palette, color_range)
     color_fuel =
         DataFrames.DataFrame(; fuels = get_palette_category(palette), colors = color_range)
     default = Vector{eltype(color_range)}()
@@ -100,7 +98,7 @@ function _match_fuel_colors(names, palette, color_range, fallback_colors)
             push!(default, color_fuel[matched_rows[1], :colors])
         else
             @debug "No palette color for fuel category '$name', using fallback"
-            push!(default, fallback_colors[mod1(fallback_idx, length(fallback_colors))])
+            push!(default, color_range[mod1(fallback_idx, length(color_range))])
             fallback_idx += 1
         end
     end
@@ -113,5 +111,5 @@ function match_fuel_colors(
     palette = PALETTE,
 )
     colors = get_palette_seriescolor(backend, palette)
-    return _match_fuel_colors(DataFrames.names(data), palette, colors, colors)
+    return _match_fuel_colors(DataFrames.names(data), palette, colors)
 end

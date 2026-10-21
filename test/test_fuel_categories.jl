@@ -92,3 +92,13 @@ end
         end
     end
 end
+
+@testset "mapping files with `ext_category` keys warn" begin
+    mapping = joinpath(mktempdir(), "ext_category_mapping.yaml")
+    write(
+        mapping,
+        "Thermal:\n  - {gentype: ThermalStandard, primemover: null, fuel: null, ext_category: CHP}\n",
+    )
+    categories = @test_logs (:warn, r"ext_category") PG._fuel_categories(mapping)
+    @test haskey(categories, "Thermal")
+end

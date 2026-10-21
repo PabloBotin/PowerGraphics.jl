@@ -10,21 +10,22 @@ prefix to its acronym while keeping the full component name.
 # When does this fire?
 
 `label_fn` runs on the column names of the dataframe that is actually plotted.
-For `plot_results` / `plot_fuel`, the default `combine_categories = true`
-aggregates first — the resulting columns are bare category names (e.g.
+For `plot_fuel`, and for `plot_results` with the default `combine_categories = true`,
+columns are aggregated first — the resulting columns are bare category names (e.g.
 `"HydroDispatch"`, `"Natural Gas"`) without the `__` separator, so
 `label_short` is a no-op on them. To see shortening in action, pass
-`combine_categories = false` so the raw `Variable__Component` labels reach
+`combine_categories = false` so the raw `<entry>__<column>` labels reach
 `label_fn`.
 
 # Usage
 
 ```julia
-plot_results(res; combine_categories = false)                                # default: "APV: HydroDispatch"
-plot_results(res; combine_categories = false, label_fn = label_component)    # "HydroDispatch"
-plot_results(res; combine_categories = false, label_fn = label_acronym)      # "APV__HD"
-plot_results(res; combine_categories = false, label_fn = label_truncate(20)) # truncate to 20 chars
-plot_results(res; combine_categories = false, label_fn = s -> s)             # original full labels
+results = Dict("ActivePowerVariable__HydroDispatch" => df)  # Dict{String, DataFrame}
+plot_results(results; combine_categories = false)                                # default: label_short
+plot_results(results; combine_categories = false, label_fn = label_component)
+plot_results(results; combine_categories = false, label_fn = label_acronym)
+plot_results(results; combine_categories = false, label_fn = label_truncate(20))
+plot_results(results; combine_categories = false, label_fn = s -> s)             # full labels
 ```
 """
 
