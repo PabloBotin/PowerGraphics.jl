@@ -9,6 +9,10 @@ PowerGraphics._drawn_series_count(
     ::PowerGraphics.PlotlyLightBackend,
 ) = length(plot.data)
 
+# Stack group of the series of one sign in a call drawn after `offset` traces.
+_sign_stack_group(offset::Int, negative::Bool) =
+    negative ? "stack_$(offset)_negative" : "stack_$(offset)_positive"
+
 function PowerGraphics._dataframe_plots_internal(
     plot::PlotlyLight.Plot,
     time_range::Array,
@@ -20,7 +24,7 @@ function PowerGraphics._dataframe_plots_internal(
     seriescolor = opts.seriescolor
     interval = opts.interval
     plot_data = opts.data
-    # Offset stack group names past traces already on the plot.
+    # Stack group names are unique to this call.
     plot_length = length(plot.data)
 
     line_shape = opts.stair ? "hv" : "linear"
@@ -34,7 +38,6 @@ function PowerGraphics._dataframe_plots_internal(
             x_data = [-0.5, 0.5]
             for ix = 1:length(names)
                 y_data = plot_data[:, ix]
-                sign_group = opts.series_negative[ix] ? 10 : 0
 
                 trace_config = PlotlyLight.Config(;
                     type = "scatter",
@@ -52,7 +55,8 @@ function PowerGraphics._dataframe_plots_internal(
                 )
 
                 if opts.stack
-                    trace_config.stackgroup = string(plot_length + 1 + sign_group)
+                    trace_config.stackgroup =
+                        _sign_stack_group(plot_length, opts.series_negative[ix])
                     trace_config.fillcolor = "transparent"
                 end
 
@@ -61,7 +65,6 @@ function PowerGraphics._dataframe_plots_internal(
         else
             for ix = 1:length(names)
                 y_data = vec(plot_data[:, ix])
-                sign_group = opts.series_negative[ix] ? 10 : 0
 
                 trace_config = PlotlyLight.Config(;
                     type = "bar",
@@ -72,7 +75,8 @@ function PowerGraphics._dataframe_plots_internal(
                 )
 
                 if opts.stack
-                    trace_config.stackgroup = string(plot_length + 1 + sign_group)
+                    trace_config.stackgroup =
+                        _sign_stack_group(plot_length, opts.series_negative[ix])
                     trace_config.fillcolor = seriescolor[ix]
                 end
 
@@ -82,7 +86,6 @@ function PowerGraphics._dataframe_plots_internal(
     else
         for ix in PowerGraphics._series_draw_order(opts.series_negative)
             data_to_plot = plot_data[:, ix]
-            sign_group = opts.series_negative[ix] ? 10 : 0
 
             trace_config = PlotlyLight.Config(;
                 type = "scatter",
@@ -100,7 +103,8 @@ function PowerGraphics._dataframe_plots_internal(
             )
 
             if opts.stack
-                trace_config.stackgroup = string(plot_length + 1 + sign_group)
+                trace_config.stackgroup =
+                    _sign_stack_group(plot_length, opts.series_negative[ix])
                 if opts.nofill
                     trace_config.fillcolor = "transparent"
                 else
@@ -108,7 +112,7 @@ function PowerGraphics._dataframe_plots_internal(
                     trace_config.fillcolor = seriescolor[ix]
                 end
             elseif !opts.nofill
-                trace_config.stackgroup = string(ix + plot_length)
+                trace_config.stackgroup = "line_$(plot_length)_$(ix)"
                 trace_config.fill = "tonexty"
             end
 

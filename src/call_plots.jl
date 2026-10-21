@@ -231,16 +231,15 @@ function _PlotOptions(
     label_fn = get(kwargs, :label_fn, label_short)
     column_labels = [string(label_fn(name)) for name in DataFrames.names(ndf)]
 
-    # Continue the color cycle past series already on `p`.
-    drawn = _drawn_series_count(p, backend)
-    colors = get(
-        kwargs,
-        :seriescolor,
-        get_palette_seriescolor(backend, get(kwargs, :palette, PALETTE)),
+    seriescolor = _series_colors(
+        get(kwargs, :seriescolor, nothing),
+        column_labels,
+        p,
+        backend,
+        get(kwargs, :palette, PALETTE),
     )
-    seriescolor = set_seriescolor(colors, vcat(ones(drawn), column_labels))[(drawn + 1):end]
 
-    step = time_range[2] - time_range[1]
+    step = _time_step(time_range, get(kwargs, :resolution, nothing))
     return _PlotOptions(
         bar,
         stack,
@@ -265,8 +264,41 @@ function _PlotOptions(
     )
 end
 
+# Caller-supplied colors map to the series in order.
+_series_colors(colors::Array, column_labels, p, ::PlottingBackend, palette) =
+    set_seriescolor(colors, column_labels)
+
+# The default palette continues the color cycle past series already on `p`.
+function _series_colors(::Nothing, column_labels, p, backend::PlottingBackend, palette)
+    drawn = _drawn_series_count(p, backend)
+    colors = get_palette_seriescolor(backend, palette)
+    return set_seriescolor(colors, vcat(ones(drawn), column_labels))[(drawn + 1):end]
+end
+
+# Spacing of `time_range`; a single time step takes it from `resolution`.
+function _time_step(time_range::Vector, resolution)
+    length(time_range) > 1 && return Dates.Millisecond(time_range[2] - time_range[1])
+    isnothing(resolution) && throw(
+        ArgumentError("plotting a single time step requires the `resolution` key word"),
+    )
+    return Dates.Millisecond(resolution)
+end
+
+const _REMOVED_WINDOW_KWARGS = (start_time = :initial_time, len = :horizon)
+
+# Throw for the removed `start_time`/`len` time window key words.
+function _check_removed_window_kwargs(kwargs)
+    for (old, new) in pairs(_REMOVED_WINDOW_KWARGS)
+        haskey(kwargs, old) && throw(
+            ArgumentError("The `$old` key word was removed; use `$new` instead."),
+        )
+    end
+    return
+end
+
 # `initial_time`/`horizon` key words to forward to `PA.compute`, unset ones dropped.
 function _time_window_kwargs(kwargs)
+    _check_removed_window_kwargs(kwargs)
     return NamedTuple(
         k => kwargs[k] for
         k in (:initial_time, :horizon) if !isnothing(get(kwargs, k, nothing))
@@ -298,6 +330,7 @@ plot = plot_demand(res)
 
 - `linestyle::Symbol = :dash` : set line style
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
+- `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results, or of the system `Deterministic` time series
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
 - `aggregate::String = "System", "PowerLoad", or "Bus"`: aggregate the demand other than by generator. Applies ONLY to the `PSY.System` input; the `IS.Results` path always aggregates to a single "Load" trace and ignores `aggregate` entirely.
 $(_COMMON_PLOT_KWARGS)
@@ -377,6 +410,17 @@ function _demand_data(result::IS.Results; kwargs...)
     return (DataFrames.DataFrame(_DEMAND_COLUMN => total), time)
 end
 
+# Time step of the plotted results.
+_plot_resolution(result::IS.Results) = IS.Optimization.get_resolution(result)
+
+# Resolution of the system's `Deterministic` time series, or `nothing` unless unique.
+function _plot_resolution(system::PSY.System)
+    resolutions =
+        PSY.get_time_series_resolutions(system; time_series_type = PSY.Deterministic)
+    length(resolutions) == 1 || return nothing
+    return only(resolutions)
+end
+
 # System path: reads load time series via `PA.get_load_data`.
 function _demand_data(system::PSY.System; kwargs...)
     kwargs = _translate_demand_aggregate(kwargs)
@@ -390,7 +434,6 @@ function _plot_demand!(p, result::Union{IS.Results, PSY.System}, backend; kwargs
 
     title = _resolve_title(kwargs, "Demand")
     y_label = get(kwargs, :y_label, bar ? "MWh" : "MW")
-    palette = get(kwargs, :palette, PALETTE)
     save_file = _resolve_save_file(backend, title, kwargs)
 
     load_agg, load_time = _demand_data(result; kwargs...)
@@ -403,8 +446,7 @@ function _plot_demand!(p, result::Union{IS.Results, PSY.System}, backend; kwargs
     )
     kwargs[:linestyle] = _resolve_linestyle(kwargs)
     kwargs[:linewidth] = get(kwargs, :linewidth, 1)
-    kwargs[:seriescolor] =
-        get(kwargs, :seriescolor, get_palette_seriescolor(backend, palette))
+    kwargs[:resolution] = get(() -> _plot_resolution(result), kwargs, :resolution)
 
     p = _plot_dataframe!(
         p,
@@ -442,6 +484,7 @@ or extends `plot`; pass the `backend` key word to pick the renderer.
 
 - `linestyle::Symbol = :dash` : set line style
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
+- `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results, or of the system `Deterministic` time series
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
 - `aggregate::String = "System", "PowerLoad", or "Bus"`: aggregate the demand by
     [`PowerSystems.System`](@extref), [`PowerSystems.PowerLoad`](@extref), or [`PowerSystems.Bus`](@extref),
@@ -487,6 +530,7 @@ plot = plot_dataframe(df, time_range)
 
 # Accepted Key Words
 - `curtailment::Bool`: plot the curtailment with the variable
+- `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
 $(_BACKEND_KWARG)
 """
@@ -537,6 +581,7 @@ function _plot_dataframe!(
     backend;
     kwargs...,
 )
+    _check_removed_window_kwargs(kwargs)
     isnothing(p) && (p = _empty_plot(backend))
     if isempty(variable)
         @warn "Plot dataframe empty: skipping plot creation"
@@ -569,6 +614,7 @@ If only the `DataFrame` is provided, it must have a column of `DateTime` values.
 
 # Accepted Key Words
 - `curtailment::Bool`: plot the curtailment with the variable
+- `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
 $(_BACKEND_KWARG)
 """
@@ -688,6 +734,7 @@ stripped and the time axis is taken from the first entry.
 - `combine_categories::Bool = true` : plot one aggregated trace per entry (the default), or one trace per column of each entry when `false`
 - `names::Vector{String}`: subset and order of the entries to plot when `combine_categories = true`
 - `aggregate::Function`: reduction applied to each entry's `time × column` matrix when `combine_categories = true` (default `x -> sum(x; dims = 2)`). The function must return an array with one value per time period (length `nrow`); scalar returns are unsupported.
+- `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
 $(_BACKEND_KWARG)
 """
@@ -714,6 +761,7 @@ Makes a plot from a results dictionary onto an existing plot handle. Each entry'
 - `combine_categories::Bool = true` : plot one aggregated trace per entry (the default), or one trace per column of each entry when `false`
 - `names::Vector{String}`: subset and order of the entries to plot when `combine_categories = true`
 - `aggregate::Function`: reduction applied to each entry's `time × column` matrix when `combine_categories = true` (default `x -> sum(x; dims = 2)`). The function must return an array with one value per time period (length `nrow`); scalar returns are unsupported.
+- `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
 $(_BACKEND_KWARG)
 """
@@ -757,6 +805,7 @@ plot = plot_fuel(res)
 - `service::Union{PowerSystems.Service, String}`: a reserve product, or its name, from `PowerAnalytics.get_reserve_services(results)`. Stacks that product's reserve provision by fuel category instead of energy, titled with the service name by default; `load`, `curtailment` and `slacks` do not apply.
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
+- `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results
 $(_COMMON_PLOT_KWARGS)
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 $(_BACKEND_KWARG)
@@ -1180,6 +1229,7 @@ function _plot_fuel!(p, result::IS.Results, backend; kwargs...)
     kwargs = Dict{Symbol, Any}(
         (k, v) for (k, v) in kwargs if k ∉ [:title, :save, :set_display, :service]
     )
+    kwargs[:resolution] = get(() -> _plot_resolution(result), kwargs, :resolution)
 
     fuel_agg, fuel_time =
         _fuel_stack(result, service, get_palette_category(palette); kwargs...)
@@ -1260,6 +1310,7 @@ renderer.
 - `service::Union{PowerSystems.Service, String}`: a reserve product, or its name, from `PowerAnalytics.get_reserve_services(results)`. Stacks that product's reserve provision by fuel category instead of energy, titled with the service name by default; `load`, `curtailment` and `slacks` do not apply.
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
+- `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results
 $(_COMMON_PLOT_KWARGS)
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 - `palette` : Color palette as from [`load_palette`](@ref).
