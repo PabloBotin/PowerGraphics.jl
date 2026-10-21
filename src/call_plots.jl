@@ -5,10 +5,9 @@ end
 # Key words shared by every public plot function, interpolated into their docstrings.
 const _COMMON_PLOT_KWARGS = """
 - `set_display::Bool = true`: set to false to prevent the plots from displaying
-- `save::String = "file_path"`: set a file path to save the plots
+- `save::String`: directory to save the plot in, as `<title>.<format>` (`dataframe.<format>` when untitled)
 - `format::String`: file extension for saved plots; defaults to `"png"` for the CairoMakie backend and `"html"` for the PlotlyLight backend. CairoMakie supports `"png"`, `"pdf"`, `"svg"`; PlotlyLight only supports `"html"` (other values are written as `.html` with a warning).
 - `seriescolor::Array`: Set different colors for the plots
-- `title::String = "Title"`: Set a title for the plots
 - `stack::Bool = true`: stack plot traces
 - `bar::Bool` : create bar plot
 - `nofill::Bool = !bar && !stack`: draw traces without an area fill
@@ -328,12 +327,13 @@ plot = plot_demand(res)
 
 # Accepted Key Words
 
-- `linestyle::Symbol = :dash` : set line style
+- `linestyle::Symbol = :solid` : set line style
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
 - `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results, or of the system `Deterministic` time series
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
 - `aggregate::String = "System", "PowerLoad", or "Bus"`: aggregate the demand other than by generator. Applies ONLY to the `PSY.System` input; the `IS.Results` path always aggregates to a single "Load" trace and ignores `aggregate` entirely.
 $(_COMMON_PLOT_KWARGS)
+- `title::String = "Demand"`: plot title
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 $(_BACKEND_KWARG)
 """  # ^ temporary workaround for https://github.com/Sienna-Platform/PowerSystems.jl/issues/1598
@@ -482,7 +482,7 @@ or extends `plot`; pass the `backend` key word to pick the renderer.
 
 # Accepted Key Words
 
-- `linestyle::Symbol = :dash` : set line style
+- `linestyle::Symbol = :solid` : set line style
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
 - `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results, or of the system `Deterministic` time series
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
@@ -491,6 +491,7 @@ or extends `plot`; pass the `backend` key word to pick the renderer.
     rather than by generator. Applies ONLY to the `PSY.System` input; the `IS.Results` path
     always aggregates to a single "Load" trace and ignores `aggregate` entirely.
 $(_COMMON_PLOT_KWARGS)
+- `title::String = "Demand"`: plot title
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 - `palette` : color palette from [`load_palette`](@ref)
 $(_BACKEND_KWARG)
@@ -532,6 +533,7 @@ plot = plot_dataframe(df, time_range)
 - `curtailment::Bool`: plot the curtailment with the variable
 - `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
+- `title::String`: plot title; none by default
 $(_BACKEND_KWARG)
 """
 function plot_dataframe(
@@ -616,6 +618,7 @@ If only the `DataFrame` is provided, it must have a column of `DateTime` values.
 - `curtailment::Bool`: plot the curtailment with the variable
 - `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
+- `title::String`: plot title; none by default
 $(_BACKEND_KWARG)
 """
 function plot_dataframe!(
@@ -736,6 +739,7 @@ stripped and the time axis is taken from the first entry.
 - `aggregate::Function`: reduction applied to each entry's `time × column` matrix when `combine_categories = true` (default `x -> sum(x; dims = 2)`). The function must return an array with one value per time period (length `nrow`); scalar returns are unsupported.
 - `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
+- `title::String`: plot title; none by default
 $(_BACKEND_KWARG)
 """
 function plot_results(
@@ -763,6 +767,7 @@ Makes a plot from a results dictionary onto an existing plot handle. Each entry'
 - `aggregate::Function`: reduction applied to each entry's `time × column` matrix when `combine_categories = true` (default `x -> sum(x; dims = 2)`). The function must return an array with one value per time period (length `nrow`); scalar returns are unsupported.
 - `resolution::Dates.Period`: time step of the data; required to plot a single time step
 $(_COMMON_PLOT_KWARGS)
+- `title::String`: plot title; none by default
 $(_BACKEND_KWARG)
 """
 function plot_results!(
@@ -807,6 +812,7 @@ plot = plot_fuel(res)
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
 - `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results
 $(_COMMON_PLOT_KWARGS)
+- `title::String = "Fuel"`: plot title; defaults to the service name when `service` is set
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 $(_BACKEND_KWARG)
 """
@@ -1312,6 +1318,7 @@ renderer.
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
 - `resolution::Dates.Period`: time step of the data, used when a single time step is plotted; defaults to the resolution of the results
 $(_COMMON_PLOT_KWARGS)
+- `title::String = "Fuel"`: plot title; defaults to the service name when `service` is set
 - `filter_func::Function = `[`PowerSystems.get_available`](@extref PowerSystems InfrastructureSystems.get_available-Tuple{RenewableDispatch}): filter components included in plot
 - `palette` : Color palette as from [`load_palette`](@ref).
 $(_BACKEND_KWARG)

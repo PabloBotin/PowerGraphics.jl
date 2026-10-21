@@ -15,9 +15,13 @@ function _deprecated_plotly_backend(old::String, new::String, kwargs)
     return PlotlyLightBackend()
 end
 
-function _warn_plot_powerdata_deprecated(name::String, replacement::String)
-    @warn "$name(::PowerAnalytics.PowerData) is deprecated; use $replacement with a " *
-          "`Dict{String, DataFrame}` (or `plot_dataframe` for a single DataFrame) " *
+function _warn_plot_powerdata_deprecated(
+    name::String,
+    results_fn::String,
+    dataframe_fn::String,
+)
+    @warn "$name(::PowerAnalytics.PowerData) is deprecated; use $results_fn with a " *
+          "`Dict{String, DataFrame}` (or `$dataframe_fn` for a single DataFrame) " *
           "instead. This method will be removed in a future breaking release."
     return
 end
@@ -26,6 +30,17 @@ end
 function _powerdata_to_results(powerdata::PA.PowerData)
     return Dict{String, DataFrames.DataFrame}(
         string(k) => PA.no_datetime(v) for (k, v) in powerdata.data
+    )
+end
+
+# Shared body of the deprecated `PowerData` methods; does not warn.
+function _plot_powerdata!(p, powerdata::PA.PowerData, backend::PlottingBackend; kwargs...)
+    return _plot_results!(
+        p,
+        _powerdata_to_results(powerdata),
+        powerdata.time,
+        backend;
+        kwargs...,
     )
 end
 
@@ -48,14 +63,8 @@ function plot_powerdata(
     backend::PlottingBackend = CairoMakieBackend(),
     kwargs...,
 )
-    _warn_plot_powerdata_deprecated("plot_powerdata", "plot_results")
-    return _plot_results!(
-        _empty_plot(backend),
-        _powerdata_to_results(powerdata),
-        powerdata.time,
-        backend;
-        kwargs...,
-    )
+    _warn_plot_powerdata_deprecated("plot_powerdata", "plot_results", "plot_dataframe")
+    return _plot_powerdata!(_empty_plot(backend), powerdata, backend; kwargs...)
 end
 
 """
@@ -78,14 +87,8 @@ function plot_powerdata!(
     backend::PlottingBackend = CairoMakieBackend(),
     kwargs...,
 )
-    _warn_plot_powerdata_deprecated("plot_powerdata!", "plot_results!")
-    return _plot_results!(
-        p,
-        _powerdata_to_results(powerdata),
-        powerdata.time,
-        backend;
-        kwargs...,
-    )
+    _warn_plot_powerdata_deprecated("plot_powerdata!", "plot_results!", "plot_dataframe!")
+    return _plot_powerdata!(p, powerdata, backend; kwargs...)
 end
 
 """
@@ -208,8 +211,8 @@ end
     `Dict{String, DataFrame}` and `backend = PlotlyLightBackend()` instead.
 """
 function plot_powerdata_plotly(powerdata::PA.PowerData; kwargs...)
-    backend = _deprecated_plotly_backend("plot_powerdata_plotly", "plot_powerdata", kwargs)
-    return plot_powerdata(powerdata; backend = backend, kwargs...)
+    backend = _deprecated_plotly_backend("plot_powerdata_plotly", "plot_results", kwargs)
+    return _plot_powerdata!(_empty_plot(backend), powerdata, backend; kwargs...)
 end
 
 @doc (@doc plot_powerdata_plotly) function plot_powerdata_plotly!(
@@ -217,7 +220,6 @@ end
     powerdata::PA.PowerData;
     kwargs...,
 )
-    backend =
-        _deprecated_plotly_backend("plot_powerdata_plotly!", "plot_powerdata!", kwargs)
-    return plot_powerdata!(p, powerdata; backend = backend, kwargs...)
+    backend = _deprecated_plotly_backend("plot_powerdata_plotly!", "plot_results!", kwargs)
+    return _plot_powerdata!(p, powerdata, backend; kwargs...)
 end

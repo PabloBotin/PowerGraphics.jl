@@ -9,6 +9,20 @@ PowerGraphics._drawn_series_count(
     ::PowerGraphics.PlotlyLightBackend,
 ) = length(plot.data)
 
+# A handle of another backend reaches these once this backend is loaded.
+PowerGraphics._drawn_series_count(::Any, backend::PowerGraphics.PlotlyLightBackend) =
+    PowerGraphics._backend_mismatch(backend)
+
+function PowerGraphics._dataframe_plots_internal(
+    ::Any,
+    ::Array,
+    backend::PowerGraphics.PlotlyLightBackend,
+    ::PowerGraphics._PlotOptions;
+    kwargs...,
+)
+    return PowerGraphics._backend_mismatch(backend)
+end
+
 # Stack group of the series of one sign in a call drawn after `offset` traces.
 _sign_stack_group(offset::Int, negative::Bool) =
     negative ? "stack_$(offset)_negative" : "stack_$(offset)_positive"

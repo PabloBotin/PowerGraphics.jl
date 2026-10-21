@@ -116,7 +116,20 @@ test_deprecated(f::Function) = @test_logs (:warn, r"deprecated") match_mode = :a
         PG._report_plot_fuel(plotly, results_uc; set_display = false),
         plot_fuel(results_uc; backend = plotly, set_display = false),
     )
-    # Both the `_plotly` shim and `plot_powerdata` warn.
+    # The `_plotly` shims warn once, pointing at the non-deprecated replacement.
+    warns_once(re, f) = @test_logs (:warn, re) f()
+    warns_once(
+        r"`plot_powerdata_plotly` is deprecated; call `plot_results\(",
+        () -> PG.plot_powerdata_plotly(gen_uc; set_display = false),
+    )
+    warns_once(
+        r"`plot_powerdata_plotly!` is deprecated; call `plot_results!\(",
+        () -> PG.plot_powerdata_plotly!(fresh(), gen_uc; set_display = false),
+    )
+    warns_once(
+        r"use plot_results! with .*`plot_dataframe!`",
+        () -> PG.plot_powerdata!(fresh(), gen_uc; backend = plotly, set_display = false),
+    )
     assert_same_plot(
         test_deprecated(() -> PG.plot_powerdata_plotly(gen_uc; set_display = false)),
         test_deprecated(
@@ -150,6 +163,38 @@ test_deprecated(f::Function) = @test_logs (:warn, r"deprecated") match_mode = :a
         df,
         time;
         backend = CairoMakieBackend(),
+    )
+end
+
+@testset "plot handle from another backend" begin
+    df = parity_dataframe()
+    time = parity_time()
+    cm_plot = plot_dataframe(df, time; set_display = false)
+    pl_plot = plot_dataframe(df, time; backend = PlotlyLightBackend(), set_display = false)
+    # `ArgumentError` naming the mismatch, not a "not loaded" error.
+    function test_mismatch(f)
+        err = @test_throws ArgumentError f()
+        @test occursin("created with a different backend", err.value.msg)
+    end
+    test_mismatch(() -> plot_dataframe!(pl_plot, df, time; set_display = false))
+    test_mismatch(
+        () -> plot_dataframe!(
+            cm_plot,
+            df,
+            time;
+            backend = PlotlyLightBackend(),
+            set_display = false,
+        ),
+    )
+    # Explicit colors skip the series count and reach the drawing call.
+    test_mismatch(
+        () -> plot_dataframe!(
+            pl_plot,
+            df,
+            time;
+            seriescolor = ["red", "green", "blue"],
+            set_display = false,
+        ),
     )
 end
 

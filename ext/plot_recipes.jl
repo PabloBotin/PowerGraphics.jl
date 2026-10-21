@@ -21,6 +21,20 @@ PowerGraphics._drawn_series_count(
     ::PowerGraphics.CairoMakieBackend,
 ) = plot.series_count
 
+# A handle of another backend reaches these once this backend is loaded.
+PowerGraphics._drawn_series_count(::Any, backend::PowerGraphics.CairoMakieBackend) =
+    PowerGraphics._backend_mismatch(backend)
+
+function PowerGraphics._dataframe_plots_internal(
+    ::Any,
+    ::Array,
+    backend::PowerGraphics.CairoMakieBackend,
+    ::PowerGraphics._PlotOptions;
+    kwargs...,
+)
+    return PowerGraphics._backend_mismatch(backend)
+end
+
 function PowerGraphics._dataframe_plots_internal(
     plot::CairoMakiePlot,
     time_range::Array,

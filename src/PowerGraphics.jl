@@ -44,7 +44,8 @@ include("deprecated.jl")
 
 # Methods for these are provided by package extensions:
 #   - `_empty_plot(::PlottingBackend)` — CairoMakieExt / PlotlyLightExt
-#   - `_drawn_series_count(plot, ::PlottingBackend)` — same
+#   - `_drawn_series_count(plot, ::PlottingBackend)` — same; a handle of another
+#     type routes to `_backend_mismatch`
 #   - `_dataframe_plots_internal(p, time, ::PlottingBackend, ::_PlotOptions; kwargs...)` — same
 #   - `save_plot(plot, filename, ::PlottingBackend; kwargs...)` — same
 #   - `report(results, out_path, template; kwargs...)` — WeaveExt
@@ -65,6 +66,17 @@ function _no_backend_loaded(::PlotlyLightBackend)
         ArgumentError(
             "PlotlyLight is not loaded. Run `using PlotlyLight` before calling " *
             "PowerGraphics plot functions with `backend = PlotlyLightBackend()`.",
+        ),
+    )
+end
+
+# Called by the extensions when a plot handle from another backend is passed.
+function _backend_mismatch(backend::PlottingBackend)
+    throw(
+        ArgumentError(
+            "The plot was created with a different backend than " *
+            "`backend = $(nameof(typeof(backend)))()`; pass the `backend` key word " *
+            "that matches the plot.",
         ),
     )
 end
