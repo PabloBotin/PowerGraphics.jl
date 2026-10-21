@@ -22,6 +22,7 @@ differs.
 | Empty `DataFrame`          | Warns `"Plot dataframe empty: skipping plot creation"` and returns the plot unchanged, without labels, legend or file.                                                                                                                           |
 | Series colors              | Both backends use the same colors from the palette given by [`load_palette`](@ref), continuing the color cycle past series already on the plot.                                                                                                  |
 | Legend labels (`label_fn`) | `label_fn` defaults to [`label_short`](@ref) and produces the same legend text on both backends.                                                                                                                                                 |
+| Reserve stacks             | [`plot_fuel`](@ref) with `service` draws the same fuel categories, values and colors on both backends.                                                                                                                                           |
 
 ## Differences between backends
 

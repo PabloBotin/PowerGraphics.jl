@@ -15,17 +15,16 @@ backend = WEAVE_ARGS["backend"]
 plot_fuel(results; backend = backend)
 ```
 
-# Reserves
+# Reserves by Fuel
 
 ```julia; echo = false
-# One stacked trace per reserve product, keyed by the service name.
-reserves = Dict(
-    String(last(split(String(key), "__"))) => df for
-    (key, df) in PowerAnalytics.get_service_data(results).data
-)
-if isempty(reserves)
+# One stack per reserve product: up and down products must not be summed.
+services = PowerAnalytics.get_reserve_services(results)
+if isempty(services)
     println("No reserve results in this simulation.")
 else
-    plot_results(reserves; backend = backend, stack = true, title = "Reserves", y_label = "MW")
+    for service in services
+        plot_fuel(results; backend = backend, service = service)
+    end
 end
 ```

@@ -754,6 +754,7 @@ plot = plot_fuel(res)
 - `curtailment::Bool = true`: To plot the curtailment in the stack plot
 - `storage::Bool = true`: include storage components (as "<category> In"/"<category> Out" traces)
 - `sources::Bool = true`: include source components (as "<category> In"/"<category> Out" traces)
+- `service::Union{PowerSystems.Service, String}`: a reserve product, or its name, from `PowerAnalytics.get_reserve_services(results)`. Stacks that product's reserve provision by fuel category instead of energy, titled with the service name by default; `load`, `curtailment` and `slacks` do not apply.
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
 $(_COMMON_PLOT_KWARGS)
@@ -1006,12 +1007,10 @@ function _assign_fuel_categories(result::IS.Results, categories, pool)
     return assignments, unmatched
 end
 
-"""
-Fuel-stack DataFrame (palette categories first, then sorted; no `DateTime`
-column) and its time axis. Categories with no contributing component are dropped.
-"""
-function _fuel_data(result::IS.Results, palette_categories::Vector{String}; kwargs...)
-    if isnothing(PA.get_system(result))
+# The system attached to `result`, which the fuel categories are read from.
+function _results_system(result::IS.Results)
+    sys = PA.get_system(result)
+    if isnothing(sys)
         throw(
             ArgumentError(
                 "No System data present: please run `set_system!(results, sys)` or " *
@@ -1019,31 +1018,62 @@ function _fuel_data(result::IS.Results, palette_categories::Vector{String}; kwar
             ),
         )
     end
-    haskey(kwargs, :variables) &&
-        @warn "The `variables` kwarg is no longer supported and is ignored; " *
-              "use filter_func/generator_mapping_file instead."
-    filter_func = get(kwargs, :filter_func, nothing)
-    curtailment = get(kwargs, :curtailment, true)
-    slacks = get(kwargs, :slacks, true)
-    storage = get(kwargs, :storage, true)
-    sources = get(kwargs, :sources, true)
-    mapping_arg = get(kwargs, :generator_mapping_file, nothing)
-    categories = _fuel_categories(mapping_arg)
+    return sys
+end
 
-    pool = _injector_pool(result, filter_func, storage, sources)
+# Injectors selected by the `filter_func`, `storage` and `sources` key words.
+_kwargs_pool(result::IS.Results, kwargs) = _injector_pool(
+    result,
+    get(kwargs, :filter_func, nothing),
+    get(kwargs, :storage, true),
+    get(kwargs, :sources, true),
+)
+
+# Pooled components by fuel category (from the `generator_mapping_file` key
+# word); components matching no rule are logged and grouped under
+# `_UNMAPPED_CATEGORY`.
+function _components_by_category(result::IS.Results, pool, kwargs)
+    categories = _fuel_categories(get(kwargs, :generator_mapping_file, nothing))
     assignments, unmatched = _assign_fuel_categories(result, categories, pool)
-
-    acc = _FuelAccumulator(_time_window_kwargs(kwargs))
-    for (category, comps) in assignments, comp in comps
-        _accumulate_component!(acc, category, result, comp)
-    end
     if !isempty(unmatched)
         unmatched_names = sort([PSY.get_name(c) for c in unmatched])
         @error "No category in the generator mapping for components: " *
                "$(join(unmatched_names, ", ")); plotting them as \"$(_UNMAPPED_CATEGORY)\""
-        for comp in unmatched
-            _accumulate_component!(acc, _UNMAPPED_CATEGORY, result, comp)
+        comps = get!(assignments, _UNMAPPED_CATEGORY) do
+            Vector{_MAPPING_ROOT_TYPE}()
         end
+        append!(comps, unmatched)
+    end
+    return assignments
+end
+
+# Accumulated columns as a DataFrame (palette categories first, in palette
+# order, then the sorted remainder) and their time axis.
+function _stack_frame(acc::_FuelAccumulator, palette_categories::Vector{String})
+    matched = intersect(palette_categories, collect(keys(acc.cols)))
+    remainder = sort(setdiff(collect(keys(acc.cols)), palette_categories))
+    df = DataFrames.DataFrame([name => acc.cols[name] for name in vcat(matched, remainder)])
+    return (df, acc.time)
+end
+
+"""
+Fuel-stack DataFrame (palette categories first, then sorted; no `DateTime`
+column) and its time axis. Categories with no contributing component are dropped.
+"""
+function _fuel_data(result::IS.Results, palette_categories::Vector{String}; kwargs...)
+    _results_system(result)
+    haskey(kwargs, :variables) &&
+        @warn "The `variables` kwarg is no longer supported and is ignored; " *
+              "use filter_func/generator_mapping_file instead."
+    curtailment = get(kwargs, :curtailment, true)
+    slacks = get(kwargs, :slacks, true)
+
+    pool = _kwargs_pool(result, kwargs)
+    acc = _FuelAccumulator(_time_window_kwargs(kwargs))
+    for (category, comps) in _components_by_category(result, pool, kwargs),
+        comp in comps
+
+        _accumulate_component!(acc, category, result, comp)
     end
     if curtailment
         for comp in pool
@@ -1053,26 +1083,106 @@ function _fuel_data(result::IS.Results, palette_categories::Vector{String}; kwar
     slacks && _accumulate_slacks!(acc, result)
 
     isempty(acc.cols) && throw(ErrorException("No generation data found in the results"))
-
-    # Palette categories first (in palette order), then the sorted remainder.
-    matched = intersect(palette_categories, collect(keys(acc.cols)))
-    remainder = sort(setdiff(collect(keys(acc.cols)), palette_categories))
-    fuel_agg =
-        DataFrames.DataFrame([name => acc.cols[name] for name in vcat(matched, remainder)])
-    return (fuel_agg, acc.time)
+    return _stack_frame(acc, palette_categories)
 end
+
+"""
+Reserve provision of `service` by fuel category, in the layout of `_fuel_data`.
+Only devices contributing to `service` are included; storage and sources
+contribute a single "<category>" column.
+"""
+function _service_fuel_data(
+    result::IS.Results,
+    service::PSY.Service,
+    palette_categories::Vector{String};
+    kwargs...,
+)
+    sys = _results_system(result)
+    contributing = Set(PSY.get_contributing_devices(sys, service))
+    pool = filter!(in(contributing), _kwargs_pool(result, kwargs))
+    provision = ((PA.Metrics.make_calc_reserve_provision(service), 1.0),)
+    acc = _FuelAccumulator(_time_window_kwargs(kwargs))
+    for (category, comps) in _components_by_category(result, pool, kwargs),
+        comp in comps
+
+        _accumulate_metrics!(acc, category, provision, result, comp)
+    end
+
+    isempty(acc.cols) && throw(
+        ErrorException(
+            "No reserve provision found for \"$(PSY.get_name(service))\" in the results",
+        ),
+    )
+    return _stack_frame(acc, palette_categories)
+end
+
+# A service is matched by type and name, so a `Service` from another copy of
+# the system resolves to the results system's own object.
+_service_matches(name::AbstractString) = s -> PSY.get_name(s) == name
+_service_matches(service::PSY.Service) =
+    s -> IS.component_to_qualified_string(s) ==
+         IS.component_to_qualified_string(service)
+
+_service_label(name::AbstractString) = name
+_service_label(service::PSY.Service) = PSY.get_name(service)
+
+"""
+The reserve product in `available` matching `service` (a `PSY.Service` or a
+name). Throws an `ArgumentError` if none or, for a name, several match.
+"""
+function _select_service(available::AbstractVector, service)
+    matches = filter(_service_matches(service), available)
+    if isempty(matches)
+        throw(
+            ArgumentError(
+                "No reserve results for service \"$(_service_label(service))\"; " *
+                "reserve products in the results: " *
+                "$(isempty(available) ? "none" : join(PSY.get_name.(available), ", "))",
+            ),
+        )
+    end
+    length(matches) > 1 && throw(
+        ArgumentError(
+            "Several reserve products are named \"$(_service_label(service))\"; " *
+            "pass the service itself",
+        ),
+    )
+    return only(matches)
+end
+
+# The `service` key word of `plot_fuel`, resolved to the results system's
+# reserve product.
+_resolve_service(::IS.Results, ::Nothing) = nothing
+_resolve_service(result::IS.Results, service::Union{PSY.Service, AbstractString}) =
+    _select_service(PA.get_reserve_services(result), service)
+
+# The energy fuel stack, or one reserve product's provision stacked by fuel.
+_fuel_stack(result::IS.Results, ::Nothing, palette_categories; kwargs...) =
+    _fuel_data(result, palette_categories; kwargs...)
+_fuel_stack(result::IS.Results, service::PSY.Service, palette_categories; kwargs...) =
+    _service_fuel_data(result, service, palette_categories; kwargs...)
+
+_fuel_title(::Nothing) = "Fuel"
+_fuel_title(service::PSY.Service) = PSY.get_name(service)
+
+# Reserve provision has no demand to compare against.
+_draws_load(::Nothing, load::Bool) = load
+_draws_load(::PSY.Service, ::Bool) = false
 
 function _plot_fuel!(p, result::IS.Results, backend; kwargs...)
     set_display = get(kwargs, :set_display, true)
-    load = get(kwargs, :load, true)
-    title = _resolve_title(kwargs, "Fuel")
+    service = _resolve_service(result, get(kwargs, :service, nothing))
+    load = _draws_load(service, get(kwargs, :load, true))
+    title = _resolve_title(kwargs, _fuel_title(service))
     stack = get(kwargs, :stack, true)
     palette = get(kwargs, :palette, PALETTE)
     save_file = _resolve_save_file(backend, title, kwargs)
-    kwargs =
-        Dict{Symbol, Any}((k, v) for (k, v) in kwargs if k ∉ [:title, :save, :set_display])
+    kwargs = Dict{Symbol, Any}(
+        (k, v) for (k, v) in kwargs if k ∉ [:title, :save, :set_display, :service]
+    )
 
-    fuel_agg, fuel_time = _fuel_data(result, get_palette_category(palette); kwargs...)
+    fuel_agg, fuel_time =
+        _fuel_stack(result, service, get_palette_category(palette); kwargs...)
 
     filter_func = get(kwargs, :filter_func, PSY.get_available)
     kwargs = popkwargs(kwargs, :filter_func)
@@ -1119,9 +1229,6 @@ function _plot_fuel!(p, result::IS.Results, backend; kwargs...)
         )
     end
 
-    # service stack
-    # TODO: how to display this?
-
     set_display && _display_plot(backend, p)
     if !isnothing(save_file)
         save_plot(p, save_file, backend; kwargs...)
@@ -1150,6 +1257,7 @@ renderer.
 - `curtailment::Bool = true`: To plot the curtailment in the stack plot
 - `storage::Bool = true`: include storage components (as "<category> In"/"<category> Out" traces)
 - `sources::Bool = true`: include source components (as "<category> In"/"<category> Out" traces)
+- `service::Union{PowerSystems.Service, String}`: a reserve product, or its name, from `PowerAnalytics.get_reserve_services(results)`. Stacks that product's reserve provision by fuel category instead of energy, titled with the service name by default; `load`, `curtailment` and `slacks` do not apply.
 - `initial_time::DateTime`: To start the plot at a different time other than the results initial time
 - `horizon::Union{Int64, Dates.Period}`: number of time periods to plot, counted from `initial_time`; a `Dates.Period` (e.g. `Dates.Hour(12)`) is converted using the resolution of the time axis
 $(_COMMON_PLOT_KWARGS)
